@@ -1,0 +1,45 @@
+Recurrent Fully Convolutional Networks
+======================================
+
+Recurrent Fully Convolutional Networks for Instance-level Object Segmentation.
+
+
+Dataset
+-------
+
+- COCO: http://mscoco.org
+
+
+Related Works
+-------------
+
+Translation-aware Fully ConvolutionalInstance Segmentation
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+- 2016: http://image-net.org/challenges/talks/2016/ta-fcn_coco.pdf
+
+
+Fully Convolutional Networks
+++++++++++++++++++++++++++++
+
+- 2015: http://cvn.ecp.fr/personnel/iasonas/slides/FCNNs.pdf
+- 2015: https://arxiv.org/pdf/1605.06211v1.pdf
+- https://github.com/wkentaro/fcn
+
+
+Recurrent Fully Convolutional Networks
+++++++++++++++++++++++++++++++++++++++
+
+- 2016: https://arxiv.org/pdf/1606.00487v3.pdf
+
+
+Proposal-free Network for Instance-level Object Segmentation
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+- 2015: https://arxiv.org/pdf/1509.02636v2.pdf
+
+
+Reversible Recursive Instance-level Object Segmentation
++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+- 2016: http://www.cv-foundation.org/openaccess/content_cvpr_2016/papers/Liang_Reversible_Recursive_Instance-Level_CVPR_2016_paper.pdf
