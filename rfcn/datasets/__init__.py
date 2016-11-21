@@ -1,1 +1,1 @@
-from rfcn.datasets.coco import CocoDataset  # NOQA
+from rfcn.datasets.coco_segmentation import CocoSegmentaionDataset  # NOQA
