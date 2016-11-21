@@ -4,6 +4,29 @@ Recurrent Fully Convolutional Networks
 Recurrent Fully Convolutional Networks for Instance-level Object Segmentation.
 
 
+Installation
+------------
+
+.. code-block:: bash
+
+  mkdir -p ~/rfcn_ws/src
+  cd ~/rfcn_ws
+
+  virtualenv venv
+  . venv/bin/activate
+
+  cd ~/rfcn_ws/src
+
+  git clone https://github.com/pdollar/coco.git
+  (cd coco/PythonAPI && python setup.py install)
+
+  git clone https://github.com/wkentaro/rfcn.git
+  (cd rfcn && python setup.py develop)
+
+
+----
+
+
 Dataset
 -------
 
