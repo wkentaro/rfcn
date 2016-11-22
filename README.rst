@@ -13,6 +13,13 @@ Dataset
 Related Works
 -------------
 
+
+Recurrent Instance Segmentation
++++++++++++++++++++++++++++++++
+
+- ECCV 2016: https://arxiv.org/pdf/1511.08250v3.pdf
+
+
 Translation-aware Fully ConvolutionalInstance Segmentation
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
