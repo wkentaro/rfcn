@@ -1,1 +1,2 @@
-from rfcn import datasets
+import rfcn.datasets
+import rfcn.utils
