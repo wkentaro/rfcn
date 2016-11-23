@@ -5,7 +5,7 @@ import fcn
 import numpy as np
 import PIL.Image
 import PIL.ImageDraw
-import skimage.io
+import scipy.misc
 
 import pycocotools
 from pycocotools.coco import COCO
@@ -41,7 +41,7 @@ class CocoSegmentaionDataset(fcn.datasets.SegmentationDatasetBase):
         anns = self.coco.loadAnns(ann_ids)
 
         img_fname = self.img_fname.format(img_id)
-        img = skimage.io.imread(img_fname)
+        img = scipy.misc.imread(img_fname, mode='RGB')
         datum = self.img_to_datum(img)
 
         label = self._annotations_to_label(anns, img.shape[0], img.shape[1])
