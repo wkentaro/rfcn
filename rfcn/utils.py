@@ -38,7 +38,7 @@ def draw_instance_boxes(img, boxes, instance_classes, captions,
         raise ValueError
 
     img_viz = img.copy()
-    cmap = fcn.util.labelcolormap(n_class)
+    cmap = fcn.utils.labelcolormap(n_class)
 
     CV_AA = 16
     for box, inst_class, caption in zip(boxes, instance_classes, captions):
