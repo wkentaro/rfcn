@@ -1,2 +1,2 @@
-import rfcn.datasets
-import rfcn.utils
+import rfcn.datasets  # NOQA
+import rfcn.utils     # NOQA
