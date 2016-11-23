@@ -27,6 +27,17 @@ Installation
   (cd rfcn && python setup.py develop)
 
 
+Testing
+-------
+
+Currently we have linter checking.
+
+.. code-block:: bash
+
+  pip install flake8 hacking
+  flake8 .
+
+
 ----
 
 
