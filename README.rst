@@ -1,6 +1,9 @@
 Recurrent Fully Convolutional Networks
 ======================================
 
+.. image:: https://app.wercker.com/status/08d2ff090d6908d3b2f234d103701ef6/s/master
+   :target: https://app.wercker.com/project/byKey/08d2ff090d6908d3b2f234d103701ef6
+
 Recurrent Fully Convolutional Networks for Instance-level Object Segmentation.
 
 
