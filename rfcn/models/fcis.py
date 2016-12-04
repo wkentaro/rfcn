@@ -1,7 +1,7 @@
 import chainer
 import chainer.links as L
 
-from ..external.faster_rcnn.models.rpn import RPN
+from rfcn.external.faster_rcnn.models.rpn import RPN
 
 
 class FCIS_VGG16(chainer.Chain):
@@ -16,7 +16,7 @@ class FCIS_VGG16(chainer.Chain):
         - k (int): kernel size for translation-aware score map. (default: 3)
         - C (int): number of object categories except background. (default: 20)
         """
-        super(FCIS, self).__init__()
+        super(FCIS_VGG16, self).__init__()
 
         # feature extraction: should be copied from VGG16
         self.add_link('conv1_1', L.Convolution2D(3, 64, 3, stride=1, pad=1))
