@@ -3,9 +3,9 @@
 
 from chainer import Variable
 from chainer.cuda import to_gpu
-from lib.faster_rcnn.anchor_target_layer import AnchorTargetLayer
-from lib.faster_rcnn.proposal_layer import ProposalLayer
-from lib.faster_rcnn.smooth_l1_loss import smooth_l1_loss
+from ..faster_rcnn.anchor_target_layer import AnchorTargetLayer
+from ..faster_rcnn.proposal_layer import ProposalLayer
+from ..faster_rcnn.smooth_l1_loss import smooth_l1_loss
 
 import chainer
 import chainer.functions as F

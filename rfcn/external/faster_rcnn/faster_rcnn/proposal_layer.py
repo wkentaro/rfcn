@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 # Mofidied by:
 # Copyright (c) 2016 Shunta Saito
 
@@ -14,10 +11,10 @@
 # -----------------------------------------------------------------------------
 
 from chainer.cuda import to_cpu
-from lib.cpu_nms import cpu_nms as nms
-from lib.faster_rcnn.bbox_transform import bbox_transform_inv
-from lib.faster_rcnn.bbox_transform import clip_boxes
-from lib.faster_rcnn.generate_anchors import generate_anchors
+from .cpu_nms import cpu_nms as nms
+from .bbox_transform import bbox_transform_inv
+from .bbox_transform import clip_boxes
+from .generate_anchors import generate_anchors
 
 import numpy as np
 

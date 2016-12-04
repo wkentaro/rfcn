@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 # Mofidied by:
 # Copyright (c) 2016 Shunta Saito
 
@@ -14,9 +11,9 @@
 # --------------------------------------------------------
 
 from chainer import Variable
-from lib.bbox import bbox_overlaps
-from lib.faster_rcnn.bbox_transform import bbox_transform
-from lib.faster_rcnn.generate_anchors import generate_anchors
+from .bbox import bbox_overlaps
+from .bbox_transform import bbox_transform
+from .generate_anchors import generate_anchors
 
 import numpy as np
 

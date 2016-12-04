@@ -6,13 +6,13 @@
 from chainer import reporter
 from chainer import Variable
 from chainer.cuda import to_gpu
-from lib.faster_rcnn.bbox_transform import bbox_transform_inv
-from lib.faster_rcnn.bbox_transform import clip_boxes
-from lib.faster_rcnn.proposal_target_layer import ProposalTargetLayer
-from lib.faster_rcnn.roi_pooling_2d import roi_pooling_2d
-from lib.faster_rcnn.smooth_l1_loss import smooth_l1_loss
-from lib.models.rpn import RPN
-from lib.models.vgg16 import VGG16
+from ..faster_rcnn.bbox_transform import bbox_transform_inv
+from ..faster_rcnn.bbox_transform import clip_boxes
+from ..faster_rcnn.proposal_target_layer import ProposalTargetLayer
+from ..faster_rcnn.roi_pooling_2d import roi_pooling_2d
+from ..faster_rcnn.smooth_l1_loss import smooth_l1_loss
+from ..models.rpn import RPN
+from ..models.vgg16 import VGG16
 
 import chainer
 import chainer.functions as F

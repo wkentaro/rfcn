@@ -1,6 +1,3 @@
-# !/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 # Modified by:
 # Copyright (c) 2016 Shunta Saito
 
@@ -12,8 +9,8 @@
 # Written by Ross Girshick and Sean Bell
 # --------------------------------------------------------
 
-from lib.bbox import bbox_overlaps
-from lib.faster_rcnn.bbox_transform import bbox_transform
+from .bbox import bbox_overlaps
+from .bbox_transform import bbox_transform
 
 import numpy as np
 import numpy.random as npr
