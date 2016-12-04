@@ -8,14 +8,14 @@ class FCIS_VGG16(chainer.Chain):
 
     """FCIS based on pretrained model of VGG16."""
 
-    def __init__(self, C, k=3):
+    def __init__(self, C, k=7):
         """Initialize network architecture.
 
         Parameters
         ----------
         C: int
             number of object categories except background.
-        k: int (default: 3)
+        k: int (default: 7)
             kernel size for translation-aware score map.
         """
         super(FCIS_VGG16, self).__init__()
