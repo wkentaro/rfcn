@@ -63,3 +63,22 @@ def draw_instance_boxes(img, boxes, instance_classes, captions,
                         1, CV_AA)
 
     return img_viz
+
+
+def mask_to_bbox(mask):
+    """Convert mask image to bounding box.
+
+    Parameters
+    ----------
+    mask: :class:`numpy.ndarray`
+        Input mask image.
+
+    Returns
+    -------
+    box: tuple (x1, y1, x2, y2)
+        Bounding box.
+    """
+    where = np.argwhere(mask)
+    (y1, x1), (y2, x2) = where.min(0), where.max(0) + 1
+    bbox = x1, y1, x2, y2
+    return bbox
