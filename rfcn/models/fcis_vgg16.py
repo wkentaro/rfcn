@@ -82,6 +82,7 @@ class FCISVGG16(chainer.Chain):
         """
         super(FCISVGG16, self).__init__()
         self.C = C
+        self.k = k
 
         # feature extraction:
         self.add_link('trunk', VGG16Trunk())
@@ -118,14 +119,15 @@ class FCISVGG16(chainer.Chain):
         """
         # feature extraction
         # ---------------------------------------------------------------------
+        # (n_batch, 3, height/32, width/32)
         h_conv5 = self.trunk(x)
         # ---------------------------------------------------------------------
 
         # region proposals
         # ---------------------------------------------------------------------
         # im_info: [[height, width, image_scale], ...]
-        n_batch, _, h, w = h_conv5.data.shape  # 1/32
-        im_info = np.array([[h, w, 1]], dtype=np.float32)
+        n_batch, _, height_32, width_32 = h_conv5.data.shape
+        im_info = np.array([[height_32, width_32, 1]], dtype=np.float32)
         im_info = np.repeat(im_info, n_batch, axis=0)
 
         # gt_boxes: [[x1, y1, x2, y2, label], ...]
@@ -135,15 +137,20 @@ class FCISVGG16(chainer.Chain):
         for i in xrange(n_batch):
             for lbl_inst in np.unique(t_label_inst_data[i]):
                 mask = t_label_inst_data[i] == lbl_inst
-                lbl_cls_count = collections.Counter(
-                    t_label_cls_data[i][mask].flatten())
-                lbl_cls = max(lbl_cls_count.items())[0]
                 x1, y1, x2, y2 = utils.mask_to_bbox(mask)
                 gt_boxes[i][0:3] = x1, y1, x2, y2
-                gt_boxes[i][4] = lbl_cls
+
+                # FCIS does not care about bbox class
+                gt_boxes[i][4] = 0
+                # lbl_cls_count = collections.Counter(
+                #     t_label_cls_data[i][mask].flatten())
+                # lbl_cls = max(lbl_cls_count.items())[0]
+                # gt_boxes[i][4] = lbl_cls
 
         # propose regions
-        rpn_cls_loss, rpn_loss_bbox, rois = self.rpn(
+        # loss_bbox_reg: bbox regression loss
+        # rois: (n_rois, 5), [batch_index, x1, y1, x2, y2]
+        _, loss_bbox_reg, rois = self.rpn(
             self.trunk.h_conv4,
             im_info=im_info,
             gt_boxes=gt_boxes,
@@ -153,18 +160,82 @@ class FCISVGG16(chainer.Chain):
 
         # position sensitive convolution
         # ---------------------------------------------------------------------
+        # (n_batch, n_channels=3, height/32, width/32)
         h_score = self.conv_score(h_conv5)  # 1/32
         # ---------------------------------------------------------------------
 
+        # operation for each roi
+        # ---------------------------------------------------------------------
+        loss_seg = None
         for roi in rois:
-            # TODO(wkentaro)
-            # h_assembled = assemble(h_score[:, :, roi[0]:roi[1], roi[2]:roi[3]])
-            scores_cls = []
-            for c in xrange(self.C):
-                scores_cls.append(np.max(h_assembled[:, 2*c:2*c+1], axis=1))
-            pass
+            x1, y1, x2, y2 = roi
+            height_roi = y2 - y1
+            width_roi = x2 - x1
+            # (n_batch, 2 * k^2 * (C + 1), height_roi, width_roi)
+            h_score_roi = h_score[:, :, roi[2]:roi[3], roi[0]:roi[1]]
 
-        # loss = loss_bbox_objectness + loss_bbox_class + loss_bbox_regression
-        # return loss
+            # assemble
+            # -----------------------------------------------------------------
+            h_score_assm = np.zeros(
+                (n_batch, 2 * (self.C + 1), height_roi, width_roi),
+                dtype=np.float32)
+            if xp == cupy:
+                h_score_assm = chainer.cuda.to_gpu(
+                    h_score_assm, h_score_roi.device)
+            # (n_batch, 2 * (C + 1), height_roi, width_roi)
+            h_score_assm = chainer.Variable(
+                h_score_assm, volatile=not self.train)
+            ksize_h = height_roi // self.k
+            ksize_w = width_roi // self.k
+            c_step = 2 * (self.C + 1)
+            for k_i in xrange(self.k**2):
+                y1 = ksize_h * k_i
+                y2 = y1 + ksize_h
+                x1 = ksize_w * k_i
+                x2 = x1 + ksize_w
+                c1 = c_step * k_i
+                c2 = c1 + c_step
+                # TODO(wkentaro):
+                #   chainer.Variable does not support setitem
+                h_score_assm[:, :, y1:y2, x1:x2] = \
+                    h_score[:, c1:c2, y1:y2, x1:x2]
+            # -----------------------------------------------------------------
 
-        pass
+            # score map for inside/outside
+            # (n_batch, C+1, 2, height_roi, width_roi)
+            h_score_assm = F.reshape(
+                h_score_assm, (n_batch, self.C + 1, 2, height_roi, width_roi))
+
+            # class likelihood:
+            # (n_batch, C+1, height_roi, width_roi)
+            h_cls_likelihood = F.max(h_score_assm, axis=2)
+            # (n_batch, C+1)
+            h_cls_likelihood = F.sum(h_cls_likelihood, axis=(2, 3))
+            # # (n_batch, C+1)
+            # h_cls_proba = F.softmax(h_cls_likelihood)
+            # TODO(wketaro): configure gt_roi_classes (class ids)
+            a_loss_cls = F.softmax_cross_entropy(
+                h_cls_likelihood, gt_roi_classes)
+            if loss_cls is None:
+                loss_cls = a_loss_cls
+            else:
+                loss_cls += a_loss_cls
+
+            # # inside/outside probability
+            # (n_batch, C+1, 2, height_roi, width_roi)
+            # h_seg_prob = F.softmax(h_score_assm, axis=2)
+
+            # (n_batch, 2, height_roi, width_roi)
+            h_cls_id = F.argmax(h_cls_likelihood, axis=1)
+            h_score_inout = h_score_assm[:, h_cls_id]
+            # TODO(wkentaro): configure gt_roi_label (label image for in/out)
+            a_loss_seg = F.softmax_cross_entropy(h_score_inout, gt_roi_label)
+            if loss_seg is None:
+                loss_seg = a_loss_seg
+            else:
+                loss_seg += a_loss_seg
+        # ---------------------------------------------------------------------
+        # loss_cls: mask classification loss
+        # loss_seg: mask segmentation loss
+        loss = loss_bbox_reg + loss_cls + loss_seg
+        return loss
