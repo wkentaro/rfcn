@@ -3,6 +3,7 @@ from __future__ import division
 import chainer
 import chainer.functions as F
 import chainer.links as L
+import cupy
 import numpy as np
 
 from rfcn.external.faster_rcnn.models.rpn import RPN
@@ -116,6 +117,8 @@ class FCISVGG16(chainer.Chain):
         t_label_inst: (n_batch, height, width)
             Label image about object instances.
         """
+        xp = chainer.cuda.get_array_module(x)
+
         # feature extraction
         # ---------------------------------------------------------------------
         # (n_batch, 3, height/32, width/32)
@@ -131,7 +134,7 @@ class FCISVGG16(chainer.Chain):
 
         # gt_boxes: [[x1, y1, x2, y2, label], ...]
         gt_boxes = np.zeros((n_batch, 4), dtype=np.float32)
-        # t_label_cls_data = chainer.cuda.to_cpu(t_label_cls.data)
+        t_label_cls_data = chainer.cuda.to_cpu(t_label_cls.data)
         t_label_inst_data = chainer.cuda.to_cpu(t_label_inst.data)
         for i in xrange(n_batch):
             for lbl_inst in np.unique(t_label_inst_data[i]):
@@ -164,56 +167,80 @@ class FCISVGG16(chainer.Chain):
         h_score = self.conv_score(h_conv5)  # 1/32
         # ---------------------------------------------------------------------
 
-        # operation for each roi
+        # operation for each ROI
         # ---------------------------------------------------------------------
-        loss_cls = None
-        loss_seg = None
+        loss_cls = chainer.Variable(xp.array(0, dtype=np.float32),
+                                    volatile='auto')
+        loss_seg = chainer.Variable(xp.array(0, dtype=np.float32),
+                                    volatile='auto')
         for roi in rois:
-            x1, y1, x2, y2 = roi
-            height_roi = y2 - y1
-            width_roi = x2 - x1
+            batch_ind, x1, y1, x2, y2 = roi
+            roi_h = y2 - y1
+            roi_w = x2 - x2
 
-            # (n_batch, 2 * k^2 * (C + 1), height_roi, width_roi)
-            h_score_roi = h_score[:, :, y1:y2, x1:x2]
+            # create gt_roi_cls & gt_roi_seg
+            roi_label_inst = t_label_inst_data[y1:y2, x1:x2]
+            max_overlap = 0
+            gt_roi_cls = None
+            gt_roi_seg = None
+            for lbl_inst in np.unique(roi_label_inst):
+                gt_mask = t_label_inst_data[batch_ind] == lbl_inst
+                roi_mask = np.zeros_like(gt_mask)
+                roi_mask[y1:y2, x1:x2] = True
+                intersect = gt_mask[y1:y2, x1:x2].sum()
+                union = np.bitwise_or(gt_mask, roi_mask).sum()
+                overlap = 1. * intersect / union
+                if overlap > max_overlap:
+                    max_overlap = overlap
+                    unique, count = np.unique(
+                        t_label_cls_data[batch_ind][gt_mask],
+                        return_counts=True)
+                    gt_roi_cls = unique[np.argmax(count)]
+                    # 0: outside, 1: inside
+                    gt_label_seg = t_label_cls_data[batch_ind] == gt_roi_cls
+                    gt_label_seg = np.bitwise_and(gt_mask[y1:y2, x1:x2],
+                                                  gt_label_seg[y1:y2, x1:x2])
+            if max_overlap < 0.5:
+                continue
+            # gt_roi_cls: (n_batch=1, 1)
+            gt_roi_cls = gt_roi_cls.reshape(1, 1)
+            if xp == cupy:
+                gt_roi_cls = chainer.to_gpu(gt_roi_cls)
+            gt_roi_cls = gt_roi_cls.astype(np.int32)
+            gt_roi_cls = chainer.Variable(gt_roi_cls, volatile='auto')
+            assert gt_roi_cls.shape == (1, 1)
+            # gt_roi_seg: (n_batch=1, 1, roi_h, roi_w)
+            gt_roi_seg = gt_roi_seg.reshape(1, 1, roi_h, roi_w)
+            if xp == cupy:
+                gt_roi_seg = chainer.to_gpu(gt_roi_seg)
+            gt_roi_seg = gt_roi_seg.astype(np.int32)
+            gt_roi_seg = chainer.Variable(gt_roi_seg, volatile='auto')
+            assert gt_roi_seg.shape == (1, 1, roi_h, roi_w)
 
-            # assembling
-            # (n_batch, 2*(C+1), height_roi, width_roi)
+            # score map in ROI: (n_batch=1, 2 * k^2 * (C + 1), roi_h, roi_w)
+            h_score_roi = h_score[batch_ind, :, y1:y2, x1:x2]
+            h_score_roi = F.reshape(
+                h_score_roi, (1, 2 * self.k**2 * (self.C+1), roi_h, roi_w))
+            # assembling: (n_batch=1, 2*(C+1), roi_h, roi_w)
             h_score_assm = functions.assemble_2d(h_score_roi, self.k)
-
-            # score map for inside/outside
-            # (n_batch, C+1, 2, height_roi, width_roi)
+            # score map for inside/outside: (n_batch=1, C+1, 2, roi_h, roi_w)
             h_score_assm = F.reshape(
-                h_score_assm, (n_batch, self.C+1, 2, height_roi, width_roi))
-
-            # class likelihood:
-            # (n_batch, C+1, height_roi, width_roi)
+                h_score_assm, (n_batch, self.C+1, 2, roi_h, roi_w))
+            # class likelihood: (n_batch=1, C+1, roi_h, roi_w)
             h_cls_likelihood = F.max(h_score_assm, axis=2)
-            # (n_batch, C+1)
+            # (n_batch=1, C+1)
             h_cls_likelihood = F.sum(h_cls_likelihood, axis=(2, 3))
-            # # (n_batch, C+1)
-            # h_cls_proba = F.softmax(h_cls_likelihood)
-            # TODO(wketaro): configure gt_roi_classes (class ids)
+
             a_loss_cls = F.softmax_cross_entropy(
-                h_cls_likelihood, gt_roi_classes)
-            if loss_cls is None:
-                loss_cls = a_loss_cls
-            else:
-                loss_cls += a_loss_cls
-
-            # # inside/outside probability
-            # (n_batch, C+1, 2, height_roi, width_roi)
-            # h_seg_prob = F.softmax(h_score_assm, axis=2)
-
-            # (n_batch, 2, height_roi, width_roi)
+                h_cls_likelihood, gt_roi_cls)
+            loss_cls += a_loss_cls
+            # inside/outside likelihood: (n_batch=1, 2, roi_h, roi_w)
             h_cls_id = F.argmax(h_cls_likelihood, axis=1)
             h_score_inout = h_score_assm[:, h_cls_id]
-            # TODO(wkentaro): configure gt_roi_label (label image for in/out)
-            a_loss_seg = F.softmax_cross_entropy(h_score_inout, gt_roi_label)
-            if loss_seg is None:
-                loss_seg = a_loss_seg
-            else:
-                loss_seg += a_loss_seg
+            a_loss_seg = F.softmax_cross_entropy(h_score_inout, gt_roi_seg)
+            loss_seg += a_loss_seg
         # ---------------------------------------------------------------------
+
         # loss_cls: mask classification loss
         # loss_seg: mask segmentation loss
         loss = loss_bbox_reg + loss_cls + loss_seg
