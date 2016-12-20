@@ -164,6 +164,7 @@ class FCISVGG16(chainer.Chain):
         h_score = self.conv_score(h_conv5)  # 1/32
         # ---------------------------------------------------------------------
 
+        self.score = h_score
         # operation for each roi
         # ---------------------------------------------------------------------
         loss_seg = None
