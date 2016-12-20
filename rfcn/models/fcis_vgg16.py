@@ -1,13 +1,12 @@
 from __future__ import division
 
-import collections
-
 import chainer
 import chainer.functions as F
 import chainer.links as L
 import numpy as np
 
 from rfcn.external.faster_rcnn.models.rpn import RPN
+from rfcn import functions
 from rfcn import utils
 
 
@@ -132,7 +131,7 @@ class FCISVGG16(chainer.Chain):
 
         # gt_boxes: [[x1, y1, x2, y2, label], ...]
         gt_boxes = np.zeros((n_batch, 4), dtype=np.float32)
-        t_label_cls_data = chainer.cuda.to_cpu(t_label_cls.data)
+        # t_label_cls_data = chainer.cuda.to_cpu(t_label_cls.data)
         t_label_inst_data = chainer.cuda.to_cpu(t_label_inst.data)
         for i in xrange(n_batch):
             for lbl_inst in np.unique(t_label_inst_data[i]):
@@ -156,56 +155,36 @@ class FCISVGG16(chainer.Chain):
             gt_boxes=gt_boxes,
             gpu=self.gpu,
         )
+
         # ---------------------------------------------------------------------
 
         # position sensitive convolution
         # ---------------------------------------------------------------------
-        # (n_batch, n_channels=3, height/32, width/32)
+        # (n_batch, n_channels=2*k^2*(C+1), height/32, width/32)
         h_score = self.conv_score(h_conv5)  # 1/32
         # ---------------------------------------------------------------------
 
         self.score = h_score
         # operation for each roi
         # ---------------------------------------------------------------------
+        loss_cls = None
         loss_seg = None
         for roi in rois:
             x1, y1, x2, y2 = roi
             height_roi = y2 - y1
             width_roi = x2 - x1
-            # (n_batch, 2 * k^2 * (C + 1), height_roi, width_roi)
-            h_score_roi = h_score[:, :, roi[2]:roi[3], roi[0]:roi[1]]
 
-            # assemble
-            # -----------------------------------------------------------------
-            h_score_assm = np.zeros(
-                (n_batch, 2 * (self.C + 1), height_roi, width_roi),
-                dtype=np.float32)
-            if xp == cupy:
-                h_score_assm = chainer.cuda.to_gpu(
-                    h_score_assm, h_score_roi.device)
-            # (n_batch, 2 * (C + 1), height_roi, width_roi)
-            h_score_assm = chainer.Variable(
-                h_score_assm, volatile=not self.train)
-            ksize_h = height_roi // self.k
-            ksize_w = width_roi // self.k
-            c_step = 2 * (self.C + 1)
-            for k_i in xrange(self.k**2):
-                y1 = ksize_h * k_i
-                y2 = y1 + ksize_h
-                x1 = ksize_w * k_i
-                x2 = x1 + ksize_w
-                c1 = c_step * k_i
-                c2 = c1 + c_step
-                # TODO(wkentaro):
-                #   chainer.Variable does not support setitem
-                h_score_assm[:, :, y1:y2, x1:x2] = \
-                    h_score[:, c1:c2, y1:y2, x1:x2]
-            # -----------------------------------------------------------------
+            # (n_batch, 2 * k^2 * (C + 1), height_roi, width_roi)
+            h_score_roi = h_score[:, :, y1:y2, x1:x2]
+
+            # assembling
+            # (n_batch, 2*(C+1), height_roi, width_roi)
+            h_score_assm = functions.assemble_2d(h_score_roi, self.k)
 
             # score map for inside/outside
             # (n_batch, C+1, 2, height_roi, width_roi)
             h_score_assm = F.reshape(
-                h_score_assm, (n_batch, self.C + 1, 2, height_roi, width_roi))
+                h_score_assm, (n_batch, self.C+1, 2, height_roi, width_roi))
 
             # class likelihood:
             # (n_batch, C+1, height_roi, width_roi)
