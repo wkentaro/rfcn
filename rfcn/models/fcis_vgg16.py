@@ -124,31 +124,32 @@ class FCISVGG16(chainer.Chain):
         # ---------------------------------------------------------------------
         # (n_batch, 3, height/32, width/32)
         h_conv5 = self.trunk(x)
+        assert h_conv5.shape[0] == 1
+        _, _, height_32s, width_32s = h_conv5.shape
         # ---------------------------------------------------------------------
 
         # region proposals
         # ---------------------------------------------------------------------
-        # im_info: [[height, width, image_scale], ...]
-        n_batch, _, height_32, width_32 = h_conv5.data.shape
-        im_info = np.array([[height_32, width_32, 1]], dtype=np.float32)
-        im_info = np.repeat(im_info, n_batch, axis=0)
-
         # gt_boxes: [[x1, y1, x2, y2, label], ...]
-        gt_boxes = np.zeros((n_batch, 4), dtype=np.float32)
-        t_label_cls_data = chainer.cuda.to_cpu(t_label_cls.data)
         t_label_inst_data = chainer.cuda.to_cpu(t_label_inst.data)
-        for i in xrange(n_batch):
-            for lbl_inst in np.unique(t_label_inst_data[i]):
-                mask = t_label_inst_data[i] == lbl_inst
-                x1, y1, x2, y2 = utils.mask_to_bbox(mask)
-                gt_boxes[i][0:3] = x1, y1, x2, y2
+        t_label_inst_pil = PIL.Image.fromarray(t_label_inst_data[0])
+        t_label_inst_32s = t_label_inst_pil.resize((width_32s, height_32s))
+        t_label_inst_32s = np.array(t_label_inst_32s)
+        unique_labels = np.unique(t_label_inst_32s[0])
+        unique_labels = unique_labels[unique_labels != -1]
+        gt_boxes = np.zeros((len(unique_labels), 5), dtype=np.float32)
+        for i, lbl_inst in enumerate(unique_labels):
+            mask = t_label_inst_32s == lbl_inst
+            x1, y1, x2, y2 = utils.mask_to_bbox(mask)
+            gt_boxes[i][:4] = x1, y1, x2, y2
+            # FCIS does not care about bbox class
+            gt_boxes[i][4] = 0
 
-                # FCIS does not care about bbox class
-                gt_boxes[i][4] = 0
-                # lbl_cls_count = collections.Counter(
-                #     t_label_cls_data[i][mask].flatten())
-                # lbl_cls = max(lbl_cls_count.items())[0]
-                # gt_boxes[i][4] = lbl_cls
+        # im_info: [[height, width, image_scale], ...]
+        _, _, height, width = x.shape
+        n_batch, _, height_16s, width_16s = self.trunk.h_conv4.shape
+        im_info = np.array([[height, width, 1]], dtype=np.float32)
+        im_info = np.repeat(im_info, n_batch, axis=0)
 
         # propose regions
         # loss_bbox_reg: bbox regression loss
@@ -157,9 +158,8 @@ class FCISVGG16(chainer.Chain):
             self.trunk.h_conv4,
             im_info=im_info,
             gt_boxes=gt_boxes,
-            gpu=self.gpu,
+            gpu=self.trunk.h_conv4.data.device.id,
         )
-
         # ---------------------------------------------------------------------
 
         # position sensitive convolution
@@ -174,14 +174,16 @@ class FCISVGG16(chainer.Chain):
                                     volatile='auto')
         loss_seg = chainer.Variable(xp.array(0, dtype=np.float32),
                                     volatile='auto')
-        t_label_inst_pil = PIL.Image.fromarray(t_label_inst_data)
-        t_label_inst_32s = t_label_inst_pil.resize(width_32, height_32)
-        t_label_inst_32s = np.array(t_label_inst_32s)
-        t_label_cls_pil = PIL.Image.fromarray(t_label_cls_data)
-        t_label_cls_32s = t_label_cls_pil.resize(width_32, height_32)
+        t_label_cls_data = chainer.cuda.to_cpu(t_label_cls.data)
+        t_label_cls_pil = PIL.Image.fromarray(t_label_cls_data[0])
+        t_label_cls_32s = t_label_cls_pil.resize((width_32s, height_32s))
         t_label_cls_32s = np.array(t_label_inst_32s)
         for roi in rois:
-            batch_ind, x1, y1, x2, y2 = roi
+            _, x1, y1, x2, y2 = roi
+            x1 = int(x1 / 32.)
+            y1 = int(y1 / 32.)
+            x2 = int(x2 / 32.)
+            y2 = int(y2 / 32.)
             roi_h = y2 - y1
             roi_w = x2 - x2
 
@@ -191,7 +193,7 @@ class FCISVGG16(chainer.Chain):
             gt_roi_cls = None
             gt_roi_seg = None
             for lbl_inst in np.unique(roi_label_inst):
-                gt_mask = t_label_inst_32s[batch_ind] == lbl_inst
+                gt_mask = t_label_inst_32s == lbl_inst
                 roi_mask = np.zeros_like(gt_mask)
                 roi_mask[y1:y2, x1:x2] = True
                 intersect = gt_mask[y1:y2, x1:x2].sum()
@@ -200,13 +202,13 @@ class FCISVGG16(chainer.Chain):
                 if overlap > max_overlap:
                     max_overlap = overlap
                     unique, count = np.unique(
-                        t_label_cls_32s[batch_ind][gt_mask],
+                        t_label_cls_32s[gt_mask],
                         return_counts=True)
                     gt_roi_cls = unique[np.argmax(count)]
                     # 0: outside, 1: inside
-                    gt_label_seg = t_label_cls_32s[batch_ind] == gt_roi_cls
-                    gt_label_seg = np.bitwise_and(gt_mask[y1:y2, x1:x2],
-                                                  gt_label_seg[y1:y2, x1:x2])
+                    gt_roi_seg = t_label_cls_32s == gt_roi_cls
+                    gt_roi_seg = np.bitwise_and(gt_mask[y1:y2, x1:x2],
+                                                gt_roi_seg[y1:y2, x1:x2])
             if max_overlap < 0.5:
                 continue
             # gt_roi_cls: (n_batch=1, 1)
@@ -225,7 +227,7 @@ class FCISVGG16(chainer.Chain):
             assert gt_roi_seg.shape == (1, 1, roi_h, roi_w)
 
             # score map in ROI: (n_batch=1, 2 * k^2 * (C + 1), roi_h, roi_w)
-            h_score_roi = h_score[batch_ind, :, y1:y2, x1:x2]
+            h_score_roi = h_score[0, :, y1:y2, x1:x2]
             h_score_roi = F.reshape(
                 h_score_roi, (1, 2 * self.k**2 * (self.C+1), roi_h, roi_w))
             # assembling: (n_batch=1, 2*(C+1), roi_h, roi_w)
