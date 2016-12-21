@@ -5,6 +5,7 @@ import chainer.functions as F
 import chainer.links as L
 import cupy
 import numpy as np
+import PIL.Image
 
 from rfcn.external.faster_rcnn.models.rpn import RPN
 from rfcn import functions
@@ -173,18 +174,24 @@ class FCISVGG16(chainer.Chain):
                                     volatile='auto')
         loss_seg = chainer.Variable(xp.array(0, dtype=np.float32),
                                     volatile='auto')
+        t_label_inst_pil = PIL.Image.fromarray(t_label_inst_data)
+        t_label_inst_32s = t_label_inst_pil.resize(width_32, height_32)
+        t_label_inst_32s = np.array(t_label_inst_32s)
+        t_label_cls_pil = PIL.Image.fromarray(t_label_cls_data)
+        t_label_cls_32s = t_label_cls_pil.resize(width_32, height_32)
+        t_label_cls_32s = np.array(t_label_inst_32s)
         for roi in rois:
             batch_ind, x1, y1, x2, y2 = roi
             roi_h = y2 - y1
             roi_w = x2 - x2
 
             # create gt_roi_cls & gt_roi_seg
-            roi_label_inst = t_label_inst_data[y1:y2, x1:x2]
+            roi_label_inst = t_label_inst_32s[y1:y2, x1:x2]
             max_overlap = 0
             gt_roi_cls = None
             gt_roi_seg = None
             for lbl_inst in np.unique(roi_label_inst):
-                gt_mask = t_label_inst_data[batch_ind] == lbl_inst
+                gt_mask = t_label_inst_32s[batch_ind] == lbl_inst
                 roi_mask = np.zeros_like(gt_mask)
                 roi_mask[y1:y2, x1:x2] = True
                 intersect = gt_mask[y1:y2, x1:x2].sum()
@@ -193,11 +200,11 @@ class FCISVGG16(chainer.Chain):
                 if overlap > max_overlap:
                     max_overlap = overlap
                     unique, count = np.unique(
-                        t_label_cls_data[batch_ind][gt_mask],
+                        t_label_cls_32s[batch_ind][gt_mask],
                         return_counts=True)
                     gt_roi_cls = unique[np.argmax(count)]
                     # 0: outside, 1: inside
-                    gt_label_seg = t_label_cls_data[batch_ind] == gt_roi_cls
+                    gt_label_seg = t_label_cls_32s[batch_ind] == gt_roi_cls
                     gt_label_seg = np.bitwise_and(gt_mask[y1:y2, x1:x2],
                                                   gt_label_seg[y1:y2, x1:x2])
             if max_overlap < 0.5:
