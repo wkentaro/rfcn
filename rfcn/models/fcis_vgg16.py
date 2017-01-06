@@ -178,6 +178,7 @@ class FCISVGG16(chainer.Chain):
         t_label_cls_pil = PIL.Image.fromarray(t_label_cls_data[0])
         t_label_cls_32s = t_label_cls_pil.resize((width_32s, height_32s))
         t_label_cls_32s = np.array(t_label_inst_32s)
+        n_rois = 0
         for roi in rois:
             _, x1, y1, x2, y2 = roi
             x1 = int(x1 / 32.)
@@ -211,6 +212,7 @@ class FCISVGG16(chainer.Chain):
                                                 gt_roi_seg[y1:y2, x1:x2])
             if max_overlap < 0.5:
                 continue
+            n_rois += 1
             # gt_roi_cls: (n_batch=1, 1)
             gt_roi_cls = gt_roi_cls.reshape(1, 1)
             if xp == cupy:
@@ -252,5 +254,9 @@ class FCISVGG16(chainer.Chain):
 
         # loss_cls: mask classification loss
         # loss_seg: mask segmentation loss
-        loss = loss_bbox_reg + loss_cls + loss_seg
+        loss = loss_bbox_reg
+        if n_rois != 0:
+            loss_cls /= n_rois
+            loss_seg /= n_rois
+            loss += (loss_cls + loss_seg)
         return loss
