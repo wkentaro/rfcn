@@ -27,7 +27,6 @@ def get_trainer(
         resume=None,
         interval_log=10,
         interval_eval=1000,
-        train_vgg=False,
         ):
 
     if isinstance(gpu, list):
@@ -36,14 +35,16 @@ def get_trainer(
         gpus = [gpu]
 
     if out is None:
-        out = tempfile.mktemp()
-
+        if resume:
+            out = osp.dirname(resume)
+        else:
+            timestamp = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+            out = osp.join(this_dir, 'logs', timestamp)
     if not resume and osp.exists(out):
         print('Result dir already exists: {}'.format(osp.abspath(out)),
               file=sys.stderr)
         quit(1)
-    if not osp.exists(out):
-        os.makedirs(out)
+    os.makedirs(out)
     print('Writing result to: {}'.format(osp.abspath(out)))
 
     # dump parameters
@@ -65,7 +66,6 @@ def get_trainer(
             'params': optimizer.__dict__,
         },
         'resume': resume,
-        'train_vgg': train_vgg,
     }
     yaml.safe_dump(params, open(param_file, 'w'), default_flow_style=False)
     print('>' * 20 + ' Parameters ' + '>' * 20)
