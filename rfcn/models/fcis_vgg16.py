@@ -125,7 +125,6 @@ class FCISVGG16(chainer.Chain):
         # ---------------------------------------------------------------------
         # (n_batch, 3, height/32, width/32)
         h_conv5 = self.trunk(x)
-        assert h_conv5.shape[0] == 1
         _, _, height_32s, width_32s = h_conv5.shape
         # ---------------------------------------------------------------------
 
@@ -170,13 +169,8 @@ class FCISVGG16(chainer.Chain):
                                     volatile='auto')
         n_rois = 0
         for roi in rois:
-            _, x1, y1, x2, y2 = roi
-            x1 = int(x1 / 32.)
-            y1 = int(y1 / 32.)
-            x2 = int(x2 / 32.)
-            y2 = int(y2 / 32.)
-            roi_h = y2 - y1
-            roi_w = x2 - x1
+            x1, y1, x2, y2 = [x // 32 for x in roi[1:]]
+            roi_h, roi_w = y2 - y1, x2 - x1
 
             # create gt_roi_cls & gt_roi_seg
             roi_label_inst = t_label_inst_32s[y1:y2, x1:x2]
