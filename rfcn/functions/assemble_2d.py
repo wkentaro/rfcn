@@ -45,7 +45,7 @@ class Assemble2DFunction(Function):
         xp = cuda.get_array_module(*inputs)
         x = inputs[0]
         gy = grad_outputs[0]
-        out_n, out_h, out_w = gy.shape
+        out_n, out_c, out_h, out_w = gy.shape
         n, c, h, w = x.shape
         assert out_n == n
         assert out_h == h
@@ -61,7 +61,7 @@ class Assemble2DFunction(Function):
             x2 = x1 + kw
             c1 = kc * ik
             c2 = c1 + kc
-            gx[:, c1:c2, y1:y2, x1:x2] = gy[:, y1:y2, x1:x2]
+            gx[:, c1:c2, y1:y2, x1:x2] = gy[:, :, y1:y2, x1:x2]
         return gx,
 
 

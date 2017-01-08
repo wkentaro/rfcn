@@ -118,7 +118,7 @@ class FCISVGG16(chainer.Chain):
         t_label_inst: (n_batch, height, width)
             Label image about object instances.
         """
-        xp = chainer.cuda.get_array_module(x)
+        xp = chainer.cuda.get_array_module(x.data)
 
         # feature extraction
         # ---------------------------------------------------------------------
@@ -135,7 +135,7 @@ class FCISVGG16(chainer.Chain):
         t_label_inst_pil = PIL.Image.fromarray(t_label_inst_data[0])
         t_label_inst_32s = t_label_inst_pil.resize((width_32s, height_32s))
         t_label_inst_32s = np.array(t_label_inst_32s)
-        unique_labels = np.unique(t_label_inst_32s[0])
+        unique_labels = np.unique(t_label_inst_32s)
         unique_labels = unique_labels[unique_labels != -1]
         gt_boxes = np.zeros((len(unique_labels), 5), dtype=np.float32)
         for i, lbl_inst in enumerate(unique_labels):
@@ -186,7 +186,7 @@ class FCISVGG16(chainer.Chain):
             x2 = int(x2 / 32.)
             y2 = int(y2 / 32.)
             roi_h = y2 - y1
-            roi_w = x2 - x2
+            roi_w = x2 - x1
 
             # create gt_roi_cls & gt_roi_seg
             roi_label_inst = t_label_inst_32s[y1:y2, x1:x2]
@@ -213,20 +213,18 @@ class FCISVGG16(chainer.Chain):
             if max_overlap < 0.5:
                 continue
             n_rois += 1
-            # gt_roi_cls: (n_batch=1, 1)
-            gt_roi_cls = gt_roi_cls.reshape(1, 1)
+            # gt_roi_cls: (n_batch=1,)
+            gt_roi_cls = gt_roi_cls.reshape(1,)
             if xp == cupy:
-                gt_roi_cls = chainer.to_gpu(gt_roi_cls)
+                gt_roi_cls = chainer.cuda.to_gpu(gt_roi_cls)
             gt_roi_cls = gt_roi_cls.astype(np.int32)
             gt_roi_cls = chainer.Variable(gt_roi_cls, volatile='auto')
-            assert gt_roi_cls.shape == (1, 1)
-            # gt_roi_seg: (n_batch=1, 1, roi_h, roi_w)
-            gt_roi_seg = gt_roi_seg.reshape(1, 1, roi_h, roi_w)
+            # gt_roi_seg: (n_batch=1, roi_h, roi_w)
+            gt_roi_seg = gt_roi_seg.reshape(1, roi_h, roi_w)
             if xp == cupy:
-                gt_roi_seg = chainer.to_gpu(gt_roi_seg)
+                gt_roi_seg = chainer.cuda.to_gpu(gt_roi_seg)
             gt_roi_seg = gt_roi_seg.astype(np.int32)
             gt_roi_seg = chainer.Variable(gt_roi_seg, volatile='auto')
-            assert gt_roi_seg.shape == (1, 1, roi_h, roi_w)
 
             # score map in ROI: (n_batch=1, 2 * k^2 * (C + 1), roi_h, roi_w)
             h_score_roi = h_score[0, :, y1:y2, x1:x2]
@@ -242,12 +240,11 @@ class FCISVGG16(chainer.Chain):
             # (n_batch=1, C+1)
             h_cls_likelihood = F.sum(h_cls_likelihood, axis=(2, 3))
 
-            a_loss_cls = F.softmax_cross_entropy(
-                h_cls_likelihood, gt_roi_cls)
+            a_loss_cls = F.softmax_cross_entropy(h_cls_likelihood, gt_roi_cls)
             loss_cls += a_loss_cls
             # inside/outside likelihood: (n_batch=1, 2, roi_h, roi_w)
             h_cls_id = F.argmax(h_cls_likelihood, axis=1)
-            h_score_inout = h_score_assm[:, h_cls_id]
+            h_score_inout = h_score_assm[:, int(h_cls_id.data[0])]
             a_loss_seg = F.softmax_cross_entropy(h_score_inout, gt_roi_seg)
             loss_seg += a_loss_seg
         # ---------------------------------------------------------------------
@@ -259,4 +256,7 @@ class FCISVGG16(chainer.Chain):
             loss_cls /= n_rois
             loss_seg /= n_rois
             loss += (loss_cls + loss_seg)
+
+        chainer.report({'loss': loss}, self)
+
         return loss
