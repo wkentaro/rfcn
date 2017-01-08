@@ -3,6 +3,7 @@ import collections
 import cv2
 import fcn
 import numpy as np
+import PIL.Image
 
 
 def label2instance_boxes(label_instance, label_class):
@@ -82,3 +83,22 @@ def mask_to_bbox(mask):
     (y1, x1), (y2, x2) = where.min(0), where.max(0) + 1
     bbox = x1, y1, x2, y2
     return bbox
+
+
+def label_to_bboxes(label, bg_label=-1):
+    """Convert label image to bounding boxes."""
+    bboxes = []
+    for l in np.unique(label):
+        if l == bg_label:
+            continue
+        mask = label == l
+        bbox = mask_to_bbox(mask)
+        bboxes.append(bbox)
+    return np.array(bboxes)
+
+
+def resize_image(img, shape):
+    height, width = shape[:2]
+    img_pil = PIL.Image.fromarray(img)
+    img_pil = img_pil.resize((width, height))
+    return np.array(img_pil)

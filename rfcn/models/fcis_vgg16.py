@@ -1,6 +1,7 @@
 from __future__ import division
 
 import chainer
+from chainer import cuda
 import chainer.functions as F
 import chainer.links as L
 import cupy
@@ -118,7 +119,7 @@ class FCISVGG16(chainer.Chain):
         t_label_inst: (n_batch, height, width)
             Label image about object instances.
         """
-        xp = chainer.cuda.get_array_module(x.data)
+        xp = cuda.get_array_module(x.data)
 
         # feature extraction
         # ---------------------------------------------------------------------
@@ -131,29 +132,20 @@ class FCISVGG16(chainer.Chain):
         # region proposals
         # ---------------------------------------------------------------------
         # gt_boxes: [[x1, y1, x2, y2, label], ...]
-        t_label_inst_data = chainer.cuda.to_cpu(t_label_inst.data)
-        t_label_inst_pil = PIL.Image.fromarray(t_label_inst_data[0])
-        t_label_inst_32s = t_label_inst_pil.resize((width_32s, height_32s))
-        t_label_inst_32s = np.array(t_label_inst_32s)
-        t_label_cls_data = chainer.cuda.to_cpu(t_label_cls.data)
-        t_label_cls_pil = PIL.Image.fromarray(t_label_cls_data[0])
-        t_label_cls_32s = t_label_cls_pil.resize((width_32s, height_32s))
-        t_label_cls_32s = np.array(t_label_inst_32s)
+        shape_32s = (height_32s, width_32s, 3)
+        t_label_cls_32s = utils.resize_image(
+            cuda.to_cpu(t_label_cls.data[0]), shape_32s)
+        t_label_inst_32s = utils.resize_image(
+            cuda.to_cpu(t_label_inst.data[0]), shape_32s)
         t_label_inst_32s_fg = t_label_inst_32s.copy()
         t_label_inst_32s_fg[t_label_cls_32s == 0] = -1
-        unique_labels = np.unique(t_label_inst_32s_fg)
-        unique_labels = unique_labels[unique_labels != -1]
-        gt_boxes = np.zeros((len(unique_labels), 5), dtype=np.float32)
-        for i, lbl_inst in enumerate(unique_labels):
-            mask = t_label_inst_32s == lbl_inst
-            x1, y1, x2, y2 = utils.mask_to_bbox(mask)
-            gt_boxes[i][:4] = x1, y1, x2, y2
-            # FCIS does not care about bbox class
-            gt_boxes[i][4] = 0
+        gt_boxes = utils.label_to_bboxes(t_label_inst_32s_fg)
+        gt_boxes = np.hstack((gt_boxes, np.zeros((len(gt_boxes), 1))))
 
         # propose regions
         # im_info: [[height, width, image_scale], ...]
-        im_info = np.array([[height_32s, width_32s, 1]], dtype=np.float32)
+        _, _, height, width = x.shape
+        im_info = np.array([[height, width, 1]], dtype=np.float32)
         # loss_bbox_reg: bbox regression loss
         # rois: (n_rois, 5), [batch_index, x1, y1, x2, y2]
         _, loss_bbox_reg, rois = self.rpn(
@@ -178,7 +170,11 @@ class FCISVGG16(chainer.Chain):
                                     volatile='auto')
         n_rois = 0
         for roi in rois:
-            _, x1, y1, x2, y2 = map(int, roi)
+            _, x1, y1, x2, y2 = roi
+            x1 = int(x1 / 32.)
+            y1 = int(y1 / 32.)
+            x2 = int(x2 / 32.)
+            y2 = int(y2 / 32.)
             roi_h = y2 - y1
             roi_w = x2 - x1
 
@@ -210,13 +206,13 @@ class FCISVGG16(chainer.Chain):
             # gt_roi_cls: (n_batch=1,)
             gt_roi_cls = gt_roi_cls.reshape(1,)
             if xp == cupy:
-                gt_roi_cls = chainer.cuda.to_gpu(gt_roi_cls)
+                gt_roi_cls = cuda.to_gpu(gt_roi_cls)
             gt_roi_cls = gt_roi_cls.astype(np.int32)
             gt_roi_cls = chainer.Variable(gt_roi_cls, volatile='auto')
             # gt_roi_seg: (n_batch=1, roi_h, roi_w)
             gt_roi_seg = gt_roi_seg.reshape(1, roi_h, roi_w)
             if xp == cupy:
-                gt_roi_seg = chainer.cuda.to_gpu(gt_roi_seg)
+                gt_roi_seg = cuda.to_gpu(gt_roi_seg)
             gt_roi_seg = gt_roi_seg.astype(np.int32)
             gt_roi_seg = chainer.Variable(gt_roi_seg, volatile='auto')
 
@@ -228,7 +224,7 @@ class FCISVGG16(chainer.Chain):
             h_score_assm = functions.assemble_2d(h_score_roi, self.k)
             # score map for inside/outside: (n_batch=1, C+1, 2, roi_h, roi_w)
             h_score_assm = F.reshape(
-                h_score_assm, (n_batch, self.C+1, 2, roi_h, roi_w))
+                h_score_assm, (1, self.C+1, 2, roi_h, roi_w))
             # class likelihood: (n_batch=1, C+1, roi_h, roi_w)
             h_cls_likelihood = F.max(h_score_assm, axis=2)
             # (n_batch=1, C+1)
