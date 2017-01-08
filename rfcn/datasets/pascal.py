@@ -61,6 +61,22 @@ class PascalInstanceSegmentationDataset(InstanceSegmentationDatasetBase):
         return len(self.files)
 
     def get_example(self, i):
+        """Return data example for instance segmentation of given index.
+
+        Parameters
+        ----------
+        i: int
+            Index of the example.
+
+        Returns
+        -------
+        datum: numpy.ndarray, (channels, height, width), float32
+            Image data.
+        label_class: numpy.ndaray, (height, width), int32
+            Class label image.
+        label_instance: numpy.ndarray, (height, width), int32
+            Instance label image.
+        """
         data_file = self.files[i]
         # load image
         img_file = data_file['img']
