@@ -6,7 +6,6 @@ import chainer.functions as F
 import chainer.links as L
 import cupy
 import numpy as np
-import PIL.Image
 
 from rfcn.external.faster_rcnn.models.rpn import RPN
 from rfcn import functions
@@ -65,8 +64,6 @@ class VGG16Trunk(chainer.Chain):
         h = F.max_pooling_2d(h, 2, stride=2)
         self.h_conv5 = h  # 1/32
 
-        return self.h_conv5
-
 
 class FCISVGG16(chainer.Chain):
 
@@ -98,6 +95,27 @@ class FCISVGG16(chainer.Chain):
         self.add_link('conv_score',
                       L.Convolution2D(512, 2 * k**2 * (C + 1), ksize=1))
 
+    def _propose_regions(self, x, t_label_cls, t_label_inst, h_conv4, gpu):
+        # gt_boxes: [[x1, y1, x2, y2, label], ...]
+        t_label_cls_data = cuda.to_cpu(t_label_cls.data)
+        t_label_inst_fg = cuda.to_cpu(t_label_inst.data)
+        t_label_inst_fg[t_label_cls_data == 0] = -1
+        gt_boxes = utils.label_to_bboxes(t_label_inst_fg)
+        gt_boxes = np.hstack((gt_boxes, np.zeros((len(gt_boxes), 1))))
+        # propose regions
+        # im_info: [[height, width, image_scale], ...]
+        _, _, height, width = x.shape
+        im_info = np.array([[height, width, 1]], dtype=np.float32)
+        # loss_bbox_reg: bbox regression loss
+        # rois: (n_rois, 5), [batch_index, x1, y1, x2, y2]
+        _, loss_bbox_reg, rois = self.rpn(
+            self.trunk.h_conv4,  # 1/16
+            im_info=im_info,
+            gt_boxes=gt_boxes,
+            gpu=self.trunk.h_conv4.data.device.id,
+        )
+        return loss_bbox_reg, rois
+
     def __call__(self, x, t_label_cls, t_label_inst):
         """Forward FCIS with VGG16 pretrained model.
 
@@ -123,36 +141,15 @@ class FCISVGG16(chainer.Chain):
 
         # feature extraction
         # ---------------------------------------------------------------------
-        # (n_batch, 3, height/32, width/32)
-        h_conv5 = self.trunk(x)
-        _, _, height_32s, width_32s = h_conv5.shape
+        self.trunk(x)
+        h_conv4 = self.trunk.h_conv4  # 1/16
+        h_conv5 = self.trunk.h_conv5  # 1/32
         # ---------------------------------------------------------------------
 
         # region proposals
         # ---------------------------------------------------------------------
-        # gt_boxes: [[x1, y1, x2, y2, label], ...]
-        shape_32s = (height_32s, width_32s, 3)
-        t_label_cls_32s = utils.resize_image(
-            cuda.to_cpu(t_label_cls.data[0]), shape_32s)
-        t_label_inst_32s = utils.resize_image(
-            cuda.to_cpu(t_label_inst.data[0]), shape_32s)
-        t_label_inst_32s_fg = t_label_inst_32s.copy()
-        t_label_inst_32s_fg[t_label_cls_32s == 0] = -1
-        gt_boxes = utils.label_to_bboxes(t_label_inst_32s_fg)
-        gt_boxes = np.hstack((gt_boxes, np.zeros((len(gt_boxes), 1))))
-
-        # propose regions
-        # im_info: [[height, width, image_scale], ...]
-        _, _, height, width = x.shape
-        im_info = np.array([[height, width, 1]], dtype=np.float32)
-        # loss_bbox_reg: bbox regression loss
-        # rois: (n_rois, 5), [batch_index, x1, y1, x2, y2]
-        _, loss_bbox_reg, rois = self.rpn(
-            self.trunk.h_conv4,  # 1/16
-            im_info=im_info,
-            gt_boxes=gt_boxes,
-            gpu=self.trunk.h_conv4.data.device.id,
-        )
+        loss_bbox_reg, rois = self._propose_regions(
+            x, t_label_cls, t_label_inst, h_conv4, gpu=h_conv4.data.device.id)
         # ---------------------------------------------------------------------
 
         # position sensitive convolution
@@ -167,9 +164,15 @@ class FCISVGG16(chainer.Chain):
                                     volatile='auto')
         loss_seg = chainer.Variable(xp.array(0, dtype=np.float32),
                                     volatile='auto')
+        _, _, height_32s, width_32s = h_conv5.shape
+        shape_32s = (height_32s, width_32s, 3)
+        t_label_cls_32s = utils.resize_image(
+            cuda.to_cpu(t_label_cls.data), shape_32s)
+        t_label_inst_32s = utils.resize_image(
+            cuda.to_cpu(t_label_inst.data), shape_32s)
         n_rois = 0
         for roi in rois:
-            x1, y1, x2, y2 = [x // 32 for x in roi[1:]]
+            x1, y1, x2, y2 = [r // 32 for r in roi[1:]]
             roi_h, roi_w = y2 - y1, x2 - x1
 
             # create gt_roi_cls & gt_roi_seg
