@@ -60,7 +60,7 @@ def get_trainer(
                 'size': len(dataset_val),
             },
         },
-        'model': 'FCISVGG16',
+        'model': 'FCISVGG',
         'optimizer': {
             'name': optimizer.__class__.__name__,
             'params': optimizer.__dict__,
@@ -88,7 +88,7 @@ def get_trainer(
     chainer.serializers.load_hdf5(vgg_path, vgg)
 
     n_classes = len(dataset_train.class_names) - 1
-    model = rfcn.models.FCISVGG16(C=n_classes, k=7)
+    model = rfcn.models.FCISVGG(C=n_classes, k=7)
     model.train = True
     fcn.utils.copy_chainermodel(vgg, model.trunk)
 

@@ -65,7 +65,7 @@ class VGG16Trunk(chainer.Chain):
         self.h_conv5 = h  # 1/32
 
 
-class FCISVGG16(chainer.Chain):
+class FCISVGG(chainer.Chain):
 
     """FCIS based on pretrained model of VGG16."""
 
@@ -79,7 +79,7 @@ class FCISVGG16(chainer.Chain):
         k: int (default: 7)
             kernel size for translation-aware score map.
         """
-        super(FCISVGG16, self).__init__()
+        super(FCISVGG, self).__init__()
         self.C = C
         self.k = k
 
@@ -117,7 +117,7 @@ class FCISVGG16(chainer.Chain):
         return loss_bbox_reg, rois
 
     def __call__(self, x, t_label_cls, t_label_inst):
-        """Forward FCIS with VGG16 pretrained model.
+        """Forward FCIS with VGG pretrained model.
 
         This model has three losses:
         - rpn_cls_loss:
