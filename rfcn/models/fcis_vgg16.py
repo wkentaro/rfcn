@@ -135,7 +135,13 @@ class FCISVGG16(chainer.Chain):
         t_label_inst_pil = PIL.Image.fromarray(t_label_inst_data[0])
         t_label_inst_32s = t_label_inst_pil.resize((width_32s, height_32s))
         t_label_inst_32s = np.array(t_label_inst_32s)
-        unique_labels = np.unique(t_label_inst_32s)
+        t_label_cls_data = chainer.cuda.to_cpu(t_label_cls.data)
+        t_label_cls_pil = PIL.Image.fromarray(t_label_cls_data[0])
+        t_label_cls_32s = t_label_cls_pil.resize((width_32s, height_32s))
+        t_label_cls_32s = np.array(t_label_inst_32s)
+        t_label_inst_32s_fg = t_label_inst_32s.copy()
+        t_label_inst_32s_fg[t_label_cls_32s == 0] = -1
+        unique_labels = np.unique(t_label_inst_32s_fg)
         unique_labels = unique_labels[unique_labels != -1]
         gt_boxes = np.zeros((len(unique_labels), 5), dtype=np.float32)
         for i, lbl_inst in enumerate(unique_labels):
@@ -145,17 +151,13 @@ class FCISVGG16(chainer.Chain):
             # FCIS does not care about bbox class
             gt_boxes[i][4] = 0
 
-        # im_info: [[height, width, image_scale], ...]
-        _, _, height, width = x.shape
-        n_batch, _, height_16s, width_16s = self.trunk.h_conv4.shape
-        im_info = np.array([[height, width, 1]], dtype=np.float32)
-        im_info = np.repeat(im_info, n_batch, axis=0)
-
         # propose regions
+        # im_info: [[height, width, image_scale], ...]
+        im_info = np.array([[height_32s, width_32s, 1]], dtype=np.float32)
         # loss_bbox_reg: bbox regression loss
         # rois: (n_rois, 5), [batch_index, x1, y1, x2, y2]
         _, loss_bbox_reg, rois = self.rpn(
-            self.trunk.h_conv4,
+            self.trunk.h_conv4,  # 1/16
             im_info=im_info,
             gt_boxes=gt_boxes,
             gpu=self.trunk.h_conv4.data.device.id,
@@ -174,17 +176,9 @@ class FCISVGG16(chainer.Chain):
                                     volatile='auto')
         loss_seg = chainer.Variable(xp.array(0, dtype=np.float32),
                                     volatile='auto')
-        t_label_cls_data = chainer.cuda.to_cpu(t_label_cls.data)
-        t_label_cls_pil = PIL.Image.fromarray(t_label_cls_data[0])
-        t_label_cls_32s = t_label_cls_pil.resize((width_32s, height_32s))
-        t_label_cls_32s = np.array(t_label_inst_32s)
         n_rois = 0
         for roi in rois:
-            _, x1, y1, x2, y2 = roi
-            x1 = int(x1 / 32.)
-            y1 = int(y1 / 32.)
-            x2 = int(x2 / 32.)
-            y2 = int(y2 / 32.)
+            _, x1, y1, x2, y2 = map(int, roi)
             roi_h = y2 - y1
             roi_w = x2 - x1
 
