@@ -253,6 +253,8 @@ class FCISVGG(chainer.Chain):
 class FCISVGG_RP(FCISVGG):
 
     def __call__(self, x, t_label_cls, t_label_inst):
+        self.x = x
+
         # feature extraction
         self.trunk(x)
         h_conv4 = self.trunk.h_conv4  # 1/16
@@ -260,12 +262,14 @@ class FCISVGG_RP(FCISVGG):
         # region proposals
         loss, rois, gt_boxes = self._propose_regions(
             x, t_label_cls, t_label_inst, h_conv4, gpu=h_conv4.data.device.id)
+        self.rois = rois
+        self.gt_boxes = gt_boxes
 
         # compute mean iu
         iu_scores = []
-        for roi in rois:
+        for gt in gt_boxes:
             overlaps = [utils.get_bbox_overlap(gt[:4], roi[1:])
-                        for gt in gt_boxes]
+                        for roi in rois]
             iu_scores.append(max(overlaps))
         mean_iu = np.mean(iu_scores)
 

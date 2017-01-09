@@ -11,6 +11,7 @@ import sys
 import chainer
 from chainer.training import extensions
 import fcn
+import numpy as np
 import yaml
 
 import rfcn
@@ -119,6 +120,42 @@ def get_trainer(
         invoke_before_training=False,
     )
 
+    def visualize_rp(target):
+        import cv2
+        datum = chainer.cuda.to_cpu(target.x.data[0])
+        img = dataset_val.datum_to_img(datum).copy()
+        rois = chainer.cuda.to_cpu(target.rois)
+        gt_boxes = target.gt_boxes
+        cmap = fcn.utils.labelcolormap(len(rois))
+        img_viz_all = img.copy()
+        for gt in gt_boxes:
+            x1, y1, x2, y2 = map(int, gt[:4])
+            cv2.rectangle(img_viz_all, (x1, y1), (x2, y2), (255, 255, 255))
+        for i, roi in enumerate(rois):
+            x1, y1, x2, y2 = map(int, roi[1:])
+            color = map(int, cmap[i][::-1] * 255)
+            cv2.rectangle(img_viz_all, (x1, y1), (x2, y2), color)
+        img_viz_max = img.copy()
+        for i, gt in enumerate(gt_boxes):
+            x1, y1, x2, y2 = map(int, gt[:4])
+            cv2.rectangle(img_viz_max, (x1, y1), (x2, y2), (255, 255, 255))
+            overlaps = [rfcn.utils.get_bbox_overlap([x1, y1, x2, y2], roi[1:])
+                        for roi in rois]
+            i_roi = np.argmax(overlaps)
+            x1, y1, x2, y2 = map(int, rois[i_roi][1:])
+            color = map(int, cmap[i][::-1] * 255)
+            cv2.rectangle(img_viz_max, (x1, y1), (x2, y2), color)
+        return fcn.utils.get_tile_image([img, img_viz_all, img_viz_max],
+                                        (1, 3))
+
+    trainer.extend(
+        fcn.training.extensions.ImageVisualizer(
+            iter_val, model, visualize_rp, device=gpus[0],
+        ),
+        trigger=(interval_eval, 'iteration'),
+        invoke_before_training=True,
+    )
+
     model_name = model.__class__.__name__
     trainer.extend(extensions.dump_graph(
         'main/loss', out_name='%s.dot' % model_name))
@@ -177,11 +214,11 @@ def main():
         dataset_val,
         optimizer=optimizer,
         gpu=gpu,
-        max_iter=100000,
+        max_iter=10000,
         out=out,
         resume=resume,
         interval_log=10,
-        interval_eval=1000,
+        interval_eval=100,
     )
     trainer.run()
 
