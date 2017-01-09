@@ -1,6 +1,5 @@
 import matplotlib.pyplot as plt
 
-import cv2
 import skimage.color
 
 import rfcn

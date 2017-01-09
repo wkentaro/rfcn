@@ -256,7 +256,6 @@ class FCISVGG_RP(FCISVGG):
         # feature extraction
         self.trunk(x)
         h_conv4 = self.trunk.h_conv4  # 1/16
-        h_conv5 = self.trunk.h_conv5  # 1/32
 
         # region proposals
         loss, rois, gt_boxes = self._propose_regions(

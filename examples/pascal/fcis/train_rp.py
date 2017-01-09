@@ -7,7 +7,6 @@ import datetime
 import os
 import os.path as osp
 import sys
-import tempfile
 
 import chainer
 from chainer.training import extensions
