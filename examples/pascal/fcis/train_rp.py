@@ -136,15 +136,15 @@ def get_trainer(
             color = map(int, cmap[i][::-1] * 255)
             cv2.rectangle(img_viz_all, (x1, y1), (x2, y2), color)
         img_viz_max = img.copy()
-        for i, gt in enumerate(gt_boxes):
+        for i_gt, gt in enumerate(gt_boxes):
             x1, y1, x2, y2 = map(int, gt[:4])
             cv2.rectangle(img_viz_max, (x1, y1), (x2, y2), (255, 255, 255))
             overlaps = [rfcn.utils.get_bbox_overlap([x1, y1, x2, y2], roi[1:])
                         for roi in rois]
-            i_roi = np.argmax(overlaps)
-            x1, y1, x2, y2 = map(int, rois[i_roi][1:])
-            color = map(int, cmap[i][::-1] * 255)
-            cv2.rectangle(img_viz_max, (x1, y1), (x2, y2), color)
+            color = map(int, cmap[i_gt][::-1] * 255)
+            for i_roi in np.argsort(overlaps)[-5:]:
+                x1, y1, x2, y2 = map(int, rois[i_roi][1:])
+                cv2.rectangle(img_viz_max, (x1, y1), (x2, y2), color)
         return fcn.utils.get_tile_image([img, img_viz_all, img_viz_max],
                                         (1, 3))
 
