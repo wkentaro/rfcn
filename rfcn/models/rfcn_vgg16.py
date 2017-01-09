@@ -201,7 +201,7 @@ class RFCNVGG16(chainer.Chain):
         grand_truth: (n_batch, height, width)
             Grand truth of the object.
         """
-        x.data.shape[2:]
+        
         assert self.image_size == ground_truth.shape[1:]
         # feature extraction
         # ---------------------------------------------------------------------
