@@ -97,24 +97,24 @@ class FCISVGG(chainer.Chain):
 
     def _propose_regions(self, x, t_label_cls, t_label_inst, h_conv4, gpu):
         # gt_boxes: [[x1, y1, x2, y2, label], ...]
-        t_label_cls_data = cuda.to_cpu(t_label_cls.data)
-        t_label_inst_fg = cuda.to_cpu(t_label_inst.data)
+        t_label_cls_data = cuda.to_cpu(t_label_cls.data[0])
+        t_label_inst_fg = cuda.to_cpu(t_label_inst.data[0])
         t_label_inst_fg[t_label_cls_data == 0] = -1
         gt_boxes = utils.label_to_bboxes(t_label_inst_fg)
-        gt_boxes = np.hstack((gt_boxes, np.zeros((len(gt_boxes), 1))))
         # propose regions
         # im_info: [[height, width, image_scale], ...]
         _, _, height, width = x.shape
         im_info = np.array([[height, width, 1]], dtype=np.float32)
         # loss_bbox_reg: bbox regression loss
         # rois: (n_rois, 5), [batch_index, x1, y1, x2, y2]
-        _, loss_bbox_reg, rois = self.rpn(
+        loss_bbox_cls, loss_bbox_reg, rois = self.rpn(
             self.trunk.h_conv4,  # 1/16
             im_info=im_info,
             gt_boxes=gt_boxes,
             gpu=self.trunk.h_conv4.data.device.id,
         )
-        return loss_bbox_reg, rois
+        loss_bbox = loss_bbox_cls + loss_bbox_reg
+        return loss_bbox, rois, gt_boxes
 
     def __call__(self, x, t_label_cls, t_label_inst):
         """Forward FCIS with VGG pretrained model.
@@ -148,7 +148,8 @@ class FCISVGG(chainer.Chain):
 
         # region proposals
         # ---------------------------------------------------------------------
-        loss_bbox_reg, rois = self._propose_regions(
+        assert x.shape[0] == 1  # only supports 1 size batch
+        loss_bbox_reg, rois, _ = self._propose_regions(
             x, t_label_cls, t_label_inst, h_conv4, gpu=h_conv4.data.device.id)
         # ---------------------------------------------------------------------
 
@@ -246,4 +247,28 @@ class FCISVGG(chainer.Chain):
 
         chainer.report({'loss': loss}, self)
 
+        return loss
+
+
+class FCISVGG_RP(FCISVGG):
+
+    def __call__(self, x, t_label_cls, t_label_inst):
+        # feature extraction
+        self.trunk(x)
+        h_conv4 = self.trunk.h_conv4  # 1/16
+        h_conv5 = self.trunk.h_conv5  # 1/32
+
+        # region proposals
+        loss, rois, gt_boxes = self._propose_regions(
+            x, t_label_cls, t_label_inst, h_conv4, gpu=h_conv4.data.device.id)
+
+        # compute mean iu
+        iu_scores = []
+        for roi in rois:
+            overlaps = [utils.get_bbox_overlap(gt[:4], roi[1:])
+                        for gt in gt_boxes]
+            iu_scores.append(max(overlaps))
+        mean_iu = np.mean(iu_scores)
+
+        chainer.report({'loss': loss, 'iu': mean_iu}, self)
         return loss

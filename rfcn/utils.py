@@ -102,3 +102,14 @@ def resize_image(img, shape):
     img_pil = PIL.Image.fromarray(img)
     img_pil = img_pil.resize((width, height))
     return np.array(img_pil)
+
+
+def get_bbox_overlap(bbox1, bbox2):
+    x11, y11, x12, y12 = bbox1
+    x21, y21, x22, y22 = bbox2
+    w1, h1 = x12 - x11, y12 - y11
+    w2, h2 = x22 - x21, y22 - y21
+    intersect = (max(0, min(x12, x22) - max(x11, x21)) *
+                 max(0, min(y12, y22) - max(y11, y21)))
+    union = w1 * h1 + w2 * h2 - intersect
+    return 1.0 * intersect / union
