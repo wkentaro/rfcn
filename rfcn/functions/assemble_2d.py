@@ -31,14 +31,15 @@ class Assemble2DFunction(Function):
         kw = w // self.ksize
         kc = c // (self.ksize**2)
         y = xp.zeros((n, kc, h, w), dtype=np.float32)
-        for ik in xrange(self.ksize**2):
-            y1 = kh * ik
-            y2 = y1 + kh
-            x1 = kw * ik
-            x2 = x1 + kw
-            c1 = kc * ik
-            c2 = c1 + kc
-            y[:, :, y1:y2, x1:x2] = x[:, c1:c2, y1:y2, x1:x2]
+        for j in xrange(self.ksize):
+            for i in xrange(self.ksize):
+                y1 = kh * j
+                y2 = y1 + kh
+                x1 = kw * i
+                x2 = x1 + kw
+                c1 = kc * (j * self.ksize + i)
+                c2 = c1 + kc
+                y[:, :, y1:y2, x1:x2] = x[:, c1:c2, y1:y2, x1:x2]
         return y,
 
     def backward(self, inputs, grad_outputs):
@@ -54,14 +55,15 @@ class Assemble2DFunction(Function):
         kw = w // self.ksize
         kc = c // (self.ksize**2)
         gx = xp.zeros_like(x)
-        for ik in xrange(self.ksize**2):
-            y1 = kh * ik
-            y2 = y1 + kh
-            x1 = kw * ik
-            x2 = x1 + kw
-            c1 = kc * ik
-            c2 = c1 + kc
-            gx[:, c1:c2, y1:y2, x1:x2] = gy[:, :, y1:y2, x1:x2]
+        for j in xrange(self.ksize):
+            for i in xrange(self.ksize):
+                y1 = kh * j
+                y2 = y1 + kh
+                x1 = kw * i
+                x2 = x1 + kw
+                c1 = kc * (j * self.ksize + i)
+                c2 = c1 + kc
+                gx[:, c1:c2, y1:y2, x1:x2] = gy[:, :, y1:y2, x1:x2]
         return gx,
 
 
