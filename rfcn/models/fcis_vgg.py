@@ -1,11 +1,11 @@
 from __future__ import division
 
 import chainer
+from chainer import cuda
 import chainer.functions as F
 import chainer.links as L
 import cupy
 import numpy as np
-import PIL.Image
 
 from rfcn.external.faster_rcnn.models.rpn import RPN
 from rfcn import functions
@@ -64,10 +64,8 @@ class VGG16Trunk(chainer.Chain):
         h = F.max_pooling_2d(h, 2, stride=2)
         self.h_conv5 = h  # 1/32
 
-        return self.h_conv5
 
-
-class FCISVGG16(chainer.Chain):
+class FCISVGG(chainer.Chain):
 
     """FCIS based on pretrained model of VGG16."""
 
@@ -81,7 +79,7 @@ class FCISVGG16(chainer.Chain):
         k: int (default: 7)
             kernel size for translation-aware score map.
         """
-        super(FCISVGG16, self).__init__()
+        super(FCISVGG, self).__init__()
         self.C = C
         self.k = k
 
@@ -97,8 +95,29 @@ class FCISVGG16(chainer.Chain):
         self.add_link('conv_score',
                       L.Convolution2D(512, 2 * k**2 * (C + 1), ksize=1))
 
+    def _propose_regions(self, x, t_label_cls, t_label_inst, h_conv4, gpu):
+        # gt_boxes: [[x1, y1, x2, y2, label], ...]
+        t_label_cls_data = cuda.to_cpu(t_label_cls.data[0])
+        t_label_inst_fg = cuda.to_cpu(t_label_inst.data[0])
+        t_label_inst_fg[t_label_cls_data == 0] = -1
+        gt_boxes = utils.label_to_bboxes(t_label_inst_fg)
+        # propose regions
+        # im_info: [[height, width, image_scale], ...]
+        _, _, height, width = x.shape
+        im_info = np.array([[height, width, 1]], dtype=np.float32)
+        # loss_bbox_reg: bbox regression loss
+        # rois: (n_rois, 5), [batch_index, x1, y1, x2, y2]
+        loss_bbox_cls, loss_bbox_reg, rois = self.rpn(
+            self.trunk.h_conv4,  # 1/16
+            im_info=im_info,
+            gt_boxes=gt_boxes,
+            gpu=self.trunk.h_conv4.data.device.id,
+        )
+        loss_bbox = loss_bbox_cls + loss_bbox_reg
+        return loss_bbox, rois, gt_boxes
+
     def __call__(self, x, t_label_cls, t_label_inst):
-        """Forward FCIS with VGG16 pretrained model.
+        """Forward FCIS with VGG pretrained model.
 
         This model has three losses:
         - rpn_cls_loss:
@@ -118,48 +137,20 @@ class FCISVGG16(chainer.Chain):
         t_label_inst: (n_batch, height, width)
             Label image about object instances.
         """
-        xp = chainer.cuda.get_array_module(x)
+        xp = cuda.get_array_module(x.data)
 
         # feature extraction
         # ---------------------------------------------------------------------
-        # (n_batch, 3, height/32, width/32)
-        h_conv5 = self.trunk(x)
-        assert h_conv5.shape[0] == 1
-        _, _, height_32s, width_32s = h_conv5.shape
+        self.trunk(x)
+        h_conv4 = self.trunk.h_conv4  # 1/16
+        h_conv5 = self.trunk.h_conv5  # 1/32
         # ---------------------------------------------------------------------
 
         # region proposals
         # ---------------------------------------------------------------------
-        # gt_boxes: [[x1, y1, x2, y2, label], ...]
-        t_label_inst_data = chainer.cuda.to_cpu(t_label_inst.data)
-        t_label_inst_pil = PIL.Image.fromarray(t_label_inst_data[0])
-        t_label_inst_32s = t_label_inst_pil.resize((width_32s, height_32s))
-        t_label_inst_32s = np.array(t_label_inst_32s)
-        unique_labels = np.unique(t_label_inst_32s[0])
-        unique_labels = unique_labels[unique_labels != -1]
-        gt_boxes = np.zeros((len(unique_labels), 5), dtype=np.float32)
-        for i, lbl_inst in enumerate(unique_labels):
-            mask = t_label_inst_32s == lbl_inst
-            x1, y1, x2, y2 = utils.mask_to_bbox(mask)
-            gt_boxes[i][:4] = x1, y1, x2, y2
-            # FCIS does not care about bbox class
-            gt_boxes[i][4] = 0
-
-        # im_info: [[height, width, image_scale], ...]
-        _, _, height, width = x.shape
-        n_batch, _, height_16s, width_16s = self.trunk.h_conv4.shape
-        im_info = np.array([[height, width, 1]], dtype=np.float32)
-        im_info = np.repeat(im_info, n_batch, axis=0)
-
-        # propose regions
-        # loss_bbox_reg: bbox regression loss
-        # rois: (n_rois, 5), [batch_index, x1, y1, x2, y2]
-        _, loss_bbox_reg, rois = self.rpn(
-            self.trunk.h_conv4,
-            im_info=im_info,
-            gt_boxes=gt_boxes,
-            gpu=self.trunk.h_conv4.data.device.id,
-        )
+        assert x.shape[0] == 1  # only supports 1 size batch
+        loss_bbox_reg, rois, _ = self._propose_regions(
+            x, t_label_cls, t_label_inst, h_conv4, gpu=h_conv4.data.device.id)
         # ---------------------------------------------------------------------
 
         # position sensitive convolution
@@ -175,18 +166,16 @@ class FCISVGG16(chainer.Chain):
                                     volatile='auto')
         loss_seg = chainer.Variable(xp.array(0, dtype=np.float32),
                                     volatile='auto')
-        t_label_cls_data = chainer.cuda.to_cpu(t_label_cls.data)
-        t_label_cls_pil = PIL.Image.fromarray(t_label_cls_data[0])
-        t_label_cls_32s = t_label_cls_pil.resize((width_32s, height_32s))
-        t_label_cls_32s = np.array(t_label_inst_32s)
+        _, _, height_32s, width_32s = h_conv5.shape
+        shape_32s = (height_32s, width_32s, 3)
+        t_label_cls_32s = utils.resize_image(
+            cuda.to_cpu(t_label_cls.data), shape_32s)
+        t_label_inst_32s = utils.resize_image(
+            cuda.to_cpu(t_label_inst.data), shape_32s)
+        n_rois = 0
         for roi in rois:
-            _, x1, y1, x2, y2 = roi
-            x1 = int(x1 / 32.)
-            y1 = int(y1 / 32.)
-            x2 = int(x2 / 32.)
-            y2 = int(y2 / 32.)
-            roi_h = y2 - y1
-            roi_w = x2 - x2
+            x1, y1, x2, y2 = [r // 32 for r in roi[1:]]
+            roi_h, roi_w = y2 - y1, x2 - x1
 
             # create gt_roi_cls & gt_roi_seg
             roi_label_inst = t_label_inst_32s[y1:y2, x1:x2]
@@ -212,20 +201,19 @@ class FCISVGG16(chainer.Chain):
                                                 gt_roi_seg[y1:y2, x1:x2])
             if max_overlap < 0.5:
                 continue
-            # gt_roi_cls: (n_batch=1, 1)
-            gt_roi_cls = gt_roi_cls.reshape(1, 1)
+            n_rois += 1
+            # gt_roi_cls: (n_batch=1,)
+            gt_roi_cls = gt_roi_cls.reshape(1,)
             if xp == cupy:
-                gt_roi_cls = chainer.to_gpu(gt_roi_cls)
+                gt_roi_cls = cuda.to_gpu(gt_roi_cls)
             gt_roi_cls = gt_roi_cls.astype(np.int32)
             gt_roi_cls = chainer.Variable(gt_roi_cls, volatile='auto')
-            assert gt_roi_cls.shape == (1, 1)
-            # gt_roi_seg: (n_batch=1, 1, roi_h, roi_w)
-            gt_roi_seg = gt_roi_seg.reshape(1, 1, roi_h, roi_w)
+            # gt_roi_seg: (n_batch=1, roi_h, roi_w)
+            gt_roi_seg = gt_roi_seg.reshape(1, roi_h, roi_w)
             if xp == cupy:
-                gt_roi_seg = chainer.to_gpu(gt_roi_seg)
+                gt_roi_seg = cuda.to_gpu(gt_roi_seg)
             gt_roi_seg = gt_roi_seg.astype(np.int32)
             gt_roi_seg = chainer.Variable(gt_roi_seg, volatile='auto')
-            assert gt_roi_seg.shape == (1, 1, roi_h, roi_w)
 
             # score map in ROI: (n_batch=1, 2 * k^2 * (C + 1), roi_h, roi_w)
             h_score_roi = h_score[0, :, y1:y2, x1:x2]
@@ -235,23 +223,56 @@ class FCISVGG16(chainer.Chain):
             h_score_assm = functions.assemble_2d(h_score_roi, self.k)
             # score map for inside/outside: (n_batch=1, C+1, 2, roi_h, roi_w)
             h_score_assm = F.reshape(
-                h_score_assm, (n_batch, self.C+1, 2, roi_h, roi_w))
+                h_score_assm, (1, self.C+1, 2, roi_h, roi_w))
             # class likelihood: (n_batch=1, C+1, roi_h, roi_w)
             h_cls_likelihood = F.max(h_score_assm, axis=2)
             # (n_batch=1, C+1)
             h_cls_likelihood = F.sum(h_cls_likelihood, axis=(2, 3))
 
-            a_loss_cls = F.softmax_cross_entropy(
-                h_cls_likelihood, gt_roi_cls)
+            a_loss_cls = F.softmax_cross_entropy(h_cls_likelihood, gt_roi_cls)
             loss_cls += a_loss_cls
             # inside/outside likelihood: (n_batch=1, 2, roi_h, roi_w)
             h_cls_id = F.argmax(h_cls_likelihood, axis=1)
-            h_score_inout = h_score_assm[:, h_cls_id]
+            h_score_inout = h_score_assm[:, int(h_cls_id.data[0])]
             a_loss_seg = F.softmax_cross_entropy(h_score_inout, gt_roi_seg)
             loss_seg += a_loss_seg
         # ---------------------------------------------------------------------
 
         # loss_cls: mask classification loss
         # loss_seg: mask segmentation loss
-        loss = loss_bbox_reg + loss_cls + loss_seg
+        loss = loss_bbox_reg
+        if n_rois != 0:
+            loss_cls /= n_rois
+            loss_seg /= n_rois
+            loss += (loss_cls + loss_seg)
+
+        chainer.report({'loss': loss}, self)
+
+        return loss
+
+
+class FCISVGG_RP(FCISVGG):
+
+    def __call__(self, x, t_label_cls, t_label_inst):
+        self.x = x
+
+        # feature extraction
+        self.trunk(x)
+        h_conv4 = self.trunk.h_conv4  # 1/16
+
+        # region proposals
+        loss, rois, gt_boxes = self._propose_regions(
+            x, t_label_cls, t_label_inst, h_conv4, gpu=h_conv4.data.device.id)
+        self.rois = rois
+        self.gt_boxes = gt_boxes
+
+        # compute mean iu
+        iu_scores = []
+        for gt in gt_boxes:
+            overlaps = [utils.get_bbox_overlap(gt[:4], roi[1:])
+                        for roi in rois]
+            iu_scores.append(max(overlaps))
+        mean_iu = np.mean(iu_scores)
+
+        chainer.report({'loss': loss, 'iu': mean_iu}, self)
         return loss

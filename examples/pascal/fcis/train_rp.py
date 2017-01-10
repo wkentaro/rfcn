@@ -7,11 +7,11 @@ import datetime
 import os
 import os.path as osp
 import sys
-import tempfile
 
 import chainer
 from chainer.training import extensions
 import fcn
+import numpy as np
 import yaml
 
 import rfcn
@@ -27,7 +27,6 @@ def get_trainer(
         resume=None,
         interval_log=10,
         interval_eval=1000,
-        train_vgg=False,
         ):
 
     if isinstance(gpu, list):
@@ -36,14 +35,16 @@ def get_trainer(
         gpus = [gpu]
 
     if out is None:
-        out = tempfile.mktemp()
-
+        if resume:
+            out = osp.dirname(resume)
+        else:
+            timestamp = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+            out = osp.join(this_dir, 'logs', timestamp)
     if not resume and osp.exists(out):
         print('Result dir already exists: {}'.format(osp.abspath(out)),
               file=sys.stderr)
         quit(1)
-    if not osp.exists(out):
-        os.makedirs(out)
+    os.makedirs(out)
     print('Writing result to: {}'.format(osp.abspath(out)))
 
     # dump parameters
@@ -59,13 +60,12 @@ def get_trainer(
                 'size': len(dataset_val),
             },
         },
-        'model': 'FCISVGG16',
+        'model': 'FCISVGG_RP',
         'optimizer': {
             'name': optimizer.__class__.__name__,
             'params': optimizer.__dict__,
         },
         'resume': resume,
-        'train_vgg': train_vgg,
     }
     yaml.safe_dump(params, open(param_file, 'w'), default_flow_style=False)
     print('>' * 20 + ' Parameters ' + '>' * 20)
@@ -88,7 +88,7 @@ def get_trainer(
     chainer.serializers.load_hdf5(vgg_path, vgg)
 
     n_classes = len(dataset_train.class_names) - 1
-    model = rfcn.models.FCISVGG16(C=n_classes, k=7)
+    model = rfcn.models.FCISVGG_RP(C=n_classes, k=7)
     model.train = True
     fcn.utils.copy_chainermodel(vgg, model.trunk)
 
@@ -120,6 +120,42 @@ def get_trainer(
         invoke_before_training=False,
     )
 
+    def visualize_rp(target):
+        import cv2
+        datum = chainer.cuda.to_cpu(target.x.data[0])
+        img = dataset_val.datum_to_img(datum).copy()
+        rois = chainer.cuda.to_cpu(target.rois)
+        gt_boxes = target.gt_boxes
+        cmap = fcn.utils.labelcolormap(len(rois))
+        img_viz_all = img.copy()
+        for gt in gt_boxes:
+            x1, y1, x2, y2 = map(int, gt[:4])
+            cv2.rectangle(img_viz_all, (x1, y1), (x2, y2), (255, 255, 255))
+        for i, roi in enumerate(rois):
+            x1, y1, x2, y2 = map(int, roi[1:])
+            color = map(int, cmap[i][::-1] * 255)
+            cv2.rectangle(img_viz_all, (x1, y1), (x2, y2), color)
+        img_viz_max = img.copy()
+        for i_gt, gt in enumerate(gt_boxes):
+            x1, y1, x2, y2 = map(int, gt[:4])
+            cv2.rectangle(img_viz_max, (x1, y1), (x2, y2), (255, 255, 255))
+            overlaps = [rfcn.utils.get_bbox_overlap([x1, y1, x2, y2], roi[1:])
+                        for roi in rois]
+            color = map(int, cmap[i_gt][::-1] * 255)
+            for i_roi in np.argsort(overlaps)[-5:]:
+                x1, y1, x2, y2 = map(int, rois[i_roi][1:])
+                cv2.rectangle(img_viz_max, (x1, y1), (x2, y2), color)
+        return fcn.utils.get_tile_image([img, img_viz_all, img_viz_max],
+                                        (1, 3))
+
+    trainer.extend(
+        fcn.training.extensions.ImageVisualizer(
+            iter_val, model, visualize_rp, device=gpus[0],
+        ),
+        trigger=(interval_eval, 'iteration'),
+        invoke_before_training=True,
+    )
+
     model_name = model.__class__.__name__
     trainer.extend(extensions.dump_graph(
         'main/loss', out_name='%s.dot' % model_name))
@@ -137,7 +173,7 @@ def get_trainer(
     trainer.extend(extensions.PrintReport([
         'epoch', 'iteration',
         'main/loss', 'validation/main/loss',
-        'main/accuracy', 'validation/main/accuracy',
+        'main/iu', 'validation/main/iu',
         'elapsed_time',
     ]))
     trainer.extend(extensions.ProgressBar(update_interval=1))
@@ -168,13 +204,6 @@ def main():
     out = args.out
     resume = args.resume
 
-    if out is None:
-        if resume:
-            out = osp.dirname(resume)
-        else:
-            timestamp = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
-            out = osp.join(this_dir, 'logs', timestamp)
-
     dataset_train = rfcn.datasets.PascalInstanceSegmentationDataset('train')
     dataset_val = rfcn.datasets.PascalInstanceSegmentationDataset('val')
 
@@ -185,11 +214,11 @@ def main():
         dataset_val,
         optimizer=optimizer,
         gpu=gpu,
-        max_iter=100000,
+        max_iter=10000,
         out=out,
         resume=resume,
         interval_log=10,
-        interval_eval=1000,
+        interval_eval=100,
     )
     trainer.run()
 

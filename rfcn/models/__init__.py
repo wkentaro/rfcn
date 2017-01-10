@@ -1,4 +1,5 @@
-from rfcn.models import fcis_vgg16
+from rfcn.models import fcis_vgg
 
 
-FCISVGG16 = fcis_vgg16.FCISVGG16
+FCISVGG = fcis_vgg.FCISVGG
+FCISVGG_RP = fcis_vgg.FCISVGG_RP
