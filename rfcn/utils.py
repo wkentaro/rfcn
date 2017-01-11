@@ -6,22 +6,33 @@ import numpy as np
 import PIL.Image
 
 
-def label2instance_boxes(label_instance, label_class):
+def label2instance_boxes(label_instance, label_class,
+                         ignore_instance=-1, ignore_class=-1):
+    if not isinstance(ignore_instance, collections.Iterable):
+        ignore_instance = (ignore_instance,)
+    if not isinstance(ignore_class, collections.Iterable):
+        ignore_class = (ignore_class,)
     # instance_class is 'Class of the Instance'
     instance_classes = []
     boxes = []
     instances = np.unique(label_instance)
     for inst in instances:
+        if inst in ignore_instance:
+            continue
+
         mask_inst = label_instance == inst
         count = collections.Counter(label_class[mask_inst].tolist())
         instance_class = max(count.items(), key=lambda x: x[1])[0]
+
+        if instance_class in ignore_class:
+            continue
 
         where = np.argwhere(mask_inst)
         (y1, x1), (y2, x2) = where.min(0), where.max(0) + 1
 
         instance_classes.append(instance_class)
         boxes.append((x1, y1, x2, y2))
-    return instance_classes, boxes
+    return np.array(instance_classes), np.array(boxes)
 
 
 def draw_instance_boxes(img, boxes, instance_classes, captions,
