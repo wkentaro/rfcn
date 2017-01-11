@@ -85,11 +85,13 @@ def mask_to_bbox(mask):
     return bbox
 
 
-def label_to_bboxes(label, bg_label=-1):
+def label_to_bboxes(label, ignore_label=-1):
     """Convert label image to bounding boxes."""
+    if not isinstance(ignore_label, collections.Iterable):
+        ignore_label = (ignore_label,)
     bboxes = []
     for l in np.unique(label):
-        if l == bg_label:
+        if l in ignore_label:
             continue
         mask = label == l
         bbox = mask_to_bbox(mask)
