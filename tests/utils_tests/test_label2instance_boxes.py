@@ -13,7 +13,7 @@ import rfcn
 this_dir = osp.dirname(osp.realpath(__file__))
 
 
-def test_label2instance_boxes():
+def get_instance_segmentation_data():
     img_file = osp.join(this_dir, '../data/2007_000033_img.jpg')
     lbl_cls_file = osp.join(this_dir, '../data/2007_000033_lbl_cls.png')
     lbl_inst_file = osp.join(this_dir, '../data/2007_000033_lbl_inst.png')
@@ -22,6 +22,11 @@ def test_label2instance_boxes():
     lbl_cls[lbl_cls == 255] = -1
     lbl_inst = np.array(PIL.Image.open(lbl_inst_file)).astype(np.int32)
     lbl_inst[lbl_inst == 255] = -1
+    return img, lbl_cls, lbl_inst
+
+
+def test_label2instance_boxes():
+    img, lbl_cls, lbl_inst = get_instance_segmentation_data()
 
     inst_clss, bboxes = rfcn.utils.label2instance_boxes(
         lbl_inst, lbl_cls, ignore_class=(-1, 0))

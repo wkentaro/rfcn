@@ -1,26 +1,15 @@
-import os.path as osp
-
 import matplotlib.pyplot as plt
 import nose.tools
 import numpy as np
-import PIL.Image
 import skimage.color
 
 import rfcn
 
-
-this_dir = osp.dirname(osp.realpath(__file__))
+from test_label2instance_boxes import get_instance_segmentation_data
 
 
 def test_resize_image():
-    img_file = osp.join(this_dir, '../data/2007_000033_img.jpg')
-    lbl_cls_file = osp.join(this_dir, '../data/2007_000033_lbl_cls.png')
-    lbl_inst_file = osp.join(this_dir, '../data/2007_000033_lbl_inst.png')
-    img = np.array(PIL.Image.open(img_file))
-    lbl_cls = np.array(PIL.Image.open(lbl_cls_file)).astype(np.int32)
-    lbl_cls[lbl_cls == 255] = -1
-    lbl_inst = np.array(PIL.Image.open(lbl_inst_file)).astype(np.int32)
-    lbl_inst[lbl_inst == 255] = -1
+    img, lbl_cls, lbl_inst = get_instance_segmentation_data()
 
     height, width = img.shape[:2]
     height_32s, width_32s = height // 32, width // 32
