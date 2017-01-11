@@ -7,7 +7,8 @@ import PIL.Image
 
 
 def label2instance_boxes(label_instance, label_class,
-                         ignore_instance=-1, ignore_class=-1):
+                         ignore_instance=-1, ignore_class=-1,
+                         return_masks=False):
     if not isinstance(ignore_instance, collections.Iterable):
         ignore_instance = (ignore_instance,)
     if not isinstance(ignore_class, collections.Iterable):
@@ -15,6 +16,7 @@ def label2instance_boxes(label_instance, label_class,
     # instance_class is 'Class of the Instance'
     instance_classes = []
     boxes = []
+    instance_masks = []
     instances = np.unique(label_instance)
     for inst in instances:
         if inst in ignore_instance:
@@ -32,7 +34,14 @@ def label2instance_boxes(label_instance, label_class,
 
         instance_classes.append(instance_class)
         boxes.append((x1, y1, x2, y2))
-    return np.array(instance_classes), np.array(boxes)
+        instance_masks.append(mask_inst)
+    instance_classes = np.array(instance_classes)
+    boxes = np.array(boxes)
+    instance_masks = np.array(instance_masks)
+    if return_masks:
+        return instance_classes, boxes, instance_masks
+    else:
+        return instance_classes, boxes
 
 
 def draw_instance_boxes(img, boxes, instance_classes, n_class,

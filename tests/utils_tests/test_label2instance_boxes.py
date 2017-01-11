@@ -28,24 +28,32 @@ def get_instance_segmentation_data():
 def test_label2instance_boxes():
     img, lbl_cls, lbl_inst = get_instance_segmentation_data()
 
-    inst_clss, bboxes = rfcn.utils.label2instance_boxes(
-        lbl_inst, lbl_cls, ignore_class=(-1, 0))
+    inst_clss, bboxes, inst_masks = rfcn.utils.label2instance_boxes(
+        lbl_inst, lbl_cls, ignore_class=(-1, 0), return_masks=True)
 
+    n_inst = 3
+    height, width = img.shape[:2]
     np.testing.assert_equal(inst_clss, [1, 1, 1])
-    nose.tools.assert_equal(len(bboxes[inst_clss]), 3)
+    nose.tools.assert_equal(len(bboxes[inst_clss]), n_inst)
+    nose.tools.assert_equal(inst_masks.shape, (n_inst, height, width))
 
     viz = img.copy()
     colors = fcn.utils.labelcolormap(21)
     for inst_cls, bbox in zip(inst_clss, bboxes):
-        if inst_cls == 0:
-            continue
         x1, y1, x2, y2 = bbox
         color = (colors[inst_cls][::-1] * 255).astype(np.uint8).tolist()
         cv2.rectangle(viz, (x1, y1), (x2, y2), color, 3)
-    return viz
+
+    viz_masks = inst_masks.astype(np.uint8) * 255
+    viz_masks = fcn.utils.get_tile_image(viz_masks, (1, 3))
+
+    return viz, viz_masks
 
 
 if __name__ == '__main__':
-    viz = test_label2instance_boxes()
+    viz, viz_masks = test_label2instance_boxes()
+    plt.subplot(211)
     plt.imshow(viz)
+    plt.subplot(212)
+    plt.imshow(viz_masks, cmap='gray')
     plt.show()
