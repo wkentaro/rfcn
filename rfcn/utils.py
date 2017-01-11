@@ -35,25 +35,35 @@ def label2instance_boxes(label_instance, label_class,
     return np.array(instance_classes), np.array(boxes)
 
 
-def draw_instance_boxes(img, boxes, instance_classes, captions,
-                        n_class, bg_class=0, draw_caption=True):
+def draw_instance_boxes(img, boxes, instance_classes, n_class,
+                        captions=None, bg_class=0):
     """Draw labeled rectangles on image.
 
-    Args:
-        - img (numpy.ndarray): RGB image.
-        - boxes (list of tuple): (x1, y1, x2, y2)
+    Parameters
+    ----------
+    img: numpy.ndarray
+        RGB image.
+    boxes: list of tuple
+        Bounding boxes (x1, y1, x2, y2).
 
-    Returns:
-        - img_viz (numpy.ndarray): RGB image.
+    Returns
+    -------
+    img_viz: numpy.ndarray
+        RGB image.
     """
-    if not (len(boxes) == len(instance_classes) == len(captions)):
-        raise ValueError
+    n_boxes = len(boxes)
+    assert n_boxes == len(instance_classes)
+    if captions is not None:
+        assert n_boxes == len(captions)
 
     img_viz = img.copy()
     cmap = fcn.utils.labelcolormap(n_class)
 
     CV_AA = 16
-    for box, inst_class, caption in zip(boxes, instance_classes, captions):
+    for i_box in xrange(n_boxes):
+        box = boxes[i_box]
+        inst_class = instance_classes[i_box]
+
         if inst_class == bg_class:
             continue
 
@@ -64,7 +74,8 @@ def draw_instance_boxes(img, boxes, instance_classes, captions,
         x1, y1, x2, y2 = box
         cv2.rectangle(img_viz, (x1, y1), (x2, y2), color[::-1], 2, CV_AA)
 
-        if draw_caption:
+        if captions is not None:
+            caption = captions[i_box]
             font_scale = 0.4
             ret, baseline = cv2.getTextSize(
                 caption, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)

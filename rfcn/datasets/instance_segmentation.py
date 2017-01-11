@@ -20,7 +20,7 @@ class InstanceSegmentationDatasetBase(fcn.datasets.SegmentationDatasetBase):
             label_instance, label_class, ignore_class=(-1, 0))
         img_viz = rfcn.utils.draw_instance_boxes(
             img_viz, boxes, instance_classes,
-            self.class_names[instance_classes],
-            len(self.class_names))
+            n_class=len(self.class_names),
+            captions=self.class_names[instance_classes])
 
         return img_viz
