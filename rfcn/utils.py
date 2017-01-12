@@ -7,7 +7,32 @@ import PIL.Image
 
 
 def label2instance_boxes(label_instance, label_class,
-                         ignore_instance=-1, ignore_class=-1):
+                         ignore_instance=-1, ignore_class=(-1, 0),
+                         return_masks=False):
+    """Convert instance label to boxes.
+
+    Parameters
+    ----------
+    label_instance: numpy.ndarray, (H, W)
+        Label image for instance id.
+    label_class: numpy.ndarray, (H, W)
+        Label image for class.
+    ignore_instance: int or tuple of int
+        Label value ignored about label_instance. (default: -1)
+    ignore_class: int or tuple of int
+        Label value ignored about label_class. (default: (-1, 0))
+    return_masks: bool
+        Flag to return each instance mask.
+
+    Returns
+    -------
+    instance_classes: numpy.ndarray, (n_instance,)
+        Class id for each instance.
+    boxes: (n_instance, 4)
+        Bounding boxes for each instance. (x1, y1, x2, y2)
+    instance_masks: numpy.ndarray, (n_instance, H, W), bool
+        Masks for each instance. Only returns when return_masks=True.
+    """
     if not isinstance(ignore_instance, collections.Iterable):
         ignore_instance = (ignore_instance,)
     if not isinstance(ignore_class, collections.Iterable):
@@ -15,6 +40,7 @@ def label2instance_boxes(label_instance, label_class,
     # instance_class is 'Class of the Instance'
     instance_classes = []
     boxes = []
+    instance_masks = []
     instances = np.unique(label_instance)
     for inst in instances:
         if inst in ignore_instance:
@@ -32,7 +58,14 @@ def label2instance_boxes(label_instance, label_class,
 
         instance_classes.append(instance_class)
         boxes.append((x1, y1, x2, y2))
-    return np.array(instance_classes), np.array(boxes)
+        instance_masks.append(mask_inst)
+    instance_classes = np.array(instance_classes)
+    boxes = np.array(boxes)
+    instance_masks = np.array(instance_masks)
+    if return_masks:
+        return instance_classes, boxes, instance_masks
+    else:
+        return instance_classes, boxes
 
 
 def draw_instance_boxes(img, boxes, instance_classes, n_class,
@@ -137,3 +170,40 @@ def get_bbox_overlap(bbox1, bbox2):
                  max(0, min(y12, y22) - max(y11, y21)))
     union = w1 * h1 + w2 * h2 - intersect
     return 1.0 * intersect / union
+
+
+def label_rois(rois, label_instance, label_class, overlap_thresh=0.5):
+    """Label rois for instance classes.
+
+    Parameters
+    ----------
+    rois: numpy.ndarray, (n_rois, 4)
+    label_instance: numpy.ndarray, (H, W)
+    label_class: numpy.ndarray, (H, W)
+    overlap_thresh: float, [0, 1]
+        Threshold to label as fg. (default: 0.5)
+
+    Returns
+    -------
+    roi_clss: list of int
+    roi_inst_masks: list of numpy.ndarray
+    """
+    inst_clss, inst_rois, inst_masks = label2instance_boxes(
+        label_instance, label_class, return_masks=True)
+    roi_clss = []
+    roi_inst_masks = []
+    for roi in rois:
+        overlaps = [get_bbox_overlap(roi, inst_roi) for inst_roi in inst_rois]
+        inst_ind = np.argmax(overlaps)
+        overlap = overlaps[inst_ind]
+
+        if overlap > overlap_thresh:
+            roi_cls = inst_clss[inst_ind]
+            x1, y1, x2, y2 = roi
+            roi_inst_mask = inst_masks[inst_ind][y1:y2, x1:x2]
+        else:
+            roi_cls = 0
+            roi_inst_mask = None
+        roi_clss.append(roi_cls)
+        roi_inst_masks.append(roi_inst_mask)
+    return roi_clss, roi_inst_masks
