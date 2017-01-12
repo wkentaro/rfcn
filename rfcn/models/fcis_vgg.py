@@ -159,8 +159,7 @@ class FCISVGG(chainer.Chain):
         h_score = self.conv_score(h_conv5)  # 1/32
         # ---------------------------------------------------------------------
 
-        self.score = h_score
-        # operation for each roi
+        # operation for each ROI
         # ---------------------------------------------------------------------
         loss_cls = chainer.Variable(xp.array(0, dtype=np.float32),
                                     volatile='auto')

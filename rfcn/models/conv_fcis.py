@@ -1,5 +1,6 @@
 # !/usr/bin/python 
 import itertools
+import PIL
 
 import chainer
 import chainer.functions as F
@@ -14,8 +15,8 @@ from rfcn.models.fcis_vgg16 import VGG16Trunk
 class CONV_FCIS(chainer.Chain):
     def __init__(self, C, k=7):
         super(CONV_FCIS, self).__init__(
-            trunk = VGG16Trunk()
-            conv_score = L.Convolution2D(512, 2 * k**2 * (C + 1), ksize=1)
+            trunk = VGG16Trunk(),
+            conv_score = L.Convolution2D(512, 2 * k**2 * (C + 1), ksize=1),
 
             conv_1 = L.Convolution2D(2*(k**2), k, 11, pad=5),
             conv_2 = L.Convolution2D(k, 1, 11, pad=5),
