@@ -25,7 +25,8 @@ class CONV_FCIS(chainer.Chain):
         self.C = C
 
     def __call__(self, x, t_label_cls, t_label_inst):
-        """
+        """Forward FCIS with Convolution.
+
         Parameters
         ----------
         x.data: (n_batch, 3, height, width)
@@ -115,13 +116,13 @@ class CONV_FCIS(chainer.Chain):
         return loss
 
     def _get_rois(self, cls_likelihood, t_label_cls):
-        '''git rois whose class score is true and high
+        """Get rois whose class score is true and high.
 
         :param np.array cls_likelihood: (n_batch, C+1, height/32, width/32)
             Lable image output from network
         :param np.array t_label_cls: (n_batch, height/32, width/32)
             Grand truth label image about object class.
-        '''
+        """
         rois = []
         thre = 0.7
         _, height, width = t_label_cls.shape
