@@ -19,6 +19,7 @@ import rfcn
 def get_trainer(
         dataset_train,
         dataset_val,
+        model,
         optimizer,
         gpu,
         max_iter,
@@ -59,7 +60,7 @@ def get_trainer(
                 'size': len(dataset_val),
             },
         },
-        'model': 'FCISVGG',
+        'model': model,
         'optimizer': {
             'name': optimizer.__class__.__name__,
             'params': optimizer.__dict__,
@@ -87,7 +88,10 @@ def get_trainer(
     chainer.serializers.load_hdf5(vgg_path, vgg)
 
     n_classes = len(dataset_train.class_names) - 1
-    model = rfcn.models.FCISVGG(C=n_classes, k=7)
+    if model == 'normal':
+        model = rfcn.models.FCISVGG(C=n_classes, k=7)
+    elif model == 'conv' :
+        model = rfcn.models.CONVFCIS(C=n_classes, k=7)
     model.train = True
     fcn.utils.copy_chainermodel(vgg, model.trunk)
 
@@ -160,11 +164,13 @@ def main():
         help='default: logs/<timestamp> or parent dir of `resume`')
     parser.add_argument('-g', '--gpu', type=int, default=0,
                         help='default: 0')
+    parser.add_argument('--model', choices=['conv'], default='normal')
     parser.add_argument('--resume')
     args = parser.parse_args()
 
     gpu = args.gpu
     out = args.out
+    model = args.model
     resume = args.resume
 
     if out is None:
@@ -182,6 +188,7 @@ def main():
     trainer = get_trainer(
         dataset_train,
         dataset_val,
+        model=model,
         optimizer=optimizer,
         gpu=gpu,
         max_iter=100000,
