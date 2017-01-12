@@ -1,11 +1,13 @@
 import os.path as osp
 
 import chainer
+import dlib
 import numpy as np
 import PIL.Image
 import scipy
 
 from rfcn.datasets.instance_segmentation import InstanceSegmentationDatasetBase
+from rfcn import utils
 
 
 class PascalInstanceSegmentationDataset(InstanceSegmentationDatasetBase):
@@ -35,8 +37,9 @@ class PascalInstanceSegmentationDataset(InstanceSegmentationDatasetBase):
     ])
     mean_bgr = np.array([104.00698793, 116.66876762, 122.67891434])
 
-    def __init__(self, data_type):
+    def __init__(self, data_type, rp=False):
         assert data_type in ('train', 'val')
+        self.rp = rp
         dataset_dir = chainer.dataset.get_dataset_directory(
             'pascal/VOCdevkit/VOC2012')
         imgsets_file = osp.join(
@@ -92,7 +95,22 @@ class PascalInstanceSegmentationDataset(InstanceSegmentationDatasetBase):
         label_instance = PIL.Image.open(seg_object_file)
         label_instance = np.array(label_instance, dtype=np.int32)
         label_instance[label_instance == 255] = -1
-        return datum, label_class, label_instance
+        if not self.rp:
+            return datum, label_class, label_instance
+        rects = []
+        dlib.find_candidate_object_locations(img, rects)
+        rois = []
+        for d in rects:
+            x1, y1, x2, y2 = d.left(), d.top(), d.right(), d.bottom()
+            rois.append((x1, y1, x2, y2))
+        rois = np.array(rois)
+        roi_clss, _ = utils.label_rois(rois, label_instance, label_class)
+        is_sample = np.array(roi_clss) != 0
+        n_pos = is_sample.sum()
+        p = np.random.choice(np.where(~is_sample)[0], n_pos)
+        is_sample[p] = True
+        rois = rois[is_sample]
+        return datum, label_class, label_instance, rois
 
 
 if __name__ == '__main__':

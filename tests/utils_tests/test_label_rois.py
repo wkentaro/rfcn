@@ -14,7 +14,7 @@ def test_label_rois():
     img, lbl_cls, lbl_inst = get_instance_segmentation_data()
 
     rects = []
-    dlib.find_candidate_object_locations(img, rects)
+    dlib.find_candidate_object_locations(img, rects, min_size=500)
     rois = []
     for rect in rects:
         x1, y1, x2, y2 = rect.left(), rect.top(), rect.right(), rect.bottom()

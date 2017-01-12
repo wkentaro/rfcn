@@ -207,3 +207,26 @@ def label_rois(rois, label_instance, label_class, overlap_thresh=0.5):
         roi_clss.append(roi_cls)
         roi_inst_masks.append(roi_inst_mask)
     return roi_clss, roi_inst_masks
+
+
+def get_mask_overlap(mask1, mask2):
+    intersect = np.bitwise_and(mask1, mask2).sum()
+    union = np.bitwise_or(mask1, mask2).sum()
+    return 1.0 * intersect / union
+
+
+def instance_label_accuracy_score(lbl_ins1, lbl_ins2):
+    best_overlaps = []
+    for l1 in np.unique(lbl_ins1):
+        if l1 == -1:
+            continue
+        mask1 = lbl_ins1 == l1
+        best_overlap = 0
+        for l2 in np.unique(lbl_ins2):
+            if l2 == -1:
+                continue
+            mask2 = lbl_ins2 == l2
+            overlap = get_mask_overlap(mask1, mask2)
+            best_overlap = max(best_overlap, overlap)
+        best_overlaps.append(best_overlap)
+    return np.mean(best_overlaps)

@@ -4,8 +4,11 @@ import chainer
 from chainer import cuda
 import chainer.functions as F
 import chainer.links as L
+from chainer import Variable
 import cupy
+import fcn
 import numpy as np
+import sklearn.metrics
 
 from rfcn.external.faster_rcnn.models.rpn import RPN
 from rfcn import functions
@@ -274,4 +277,142 @@ class FCISVGG_RP(FCISVGG):
         mean_iu = np.mean(iu_scores)
 
         chainer.report({'loss': loss, 'iu': mean_iu}, self)
+        return loss
+
+
+class FCISVGG_SS(FCISVGG):
+
+    def __call__(self, x, lbl_cls, lbl_ins, rois):
+        xp = cuda.get_array_module(x.data)
+        rois = cuda.to_cpu(rois.data[0])
+
+        self.x = x
+        self.lbl_cls = lbl_cls
+        self.lbl_ins = lbl_ins
+        self.rois = rois
+
+        self.trunk(x)
+
+        # (1, 512, height/16, width/16)
+        h_conv4 = self.trunk.h_conv4  # 1/16
+        assert h_conv4.shape[:2] == (1, 512)
+
+        # (1, 2*k^2*(C+1), height/16, width/16)
+        h_score = self.conv_score(h_conv4)  # 1/16
+        assert h_score.shape[:2] == (1, 2*self.k**2*(self.C+1))
+
+        shape_16s = h_conv4.shape[2:4]
+        lbl_cls_data = cuda.to_cpu(lbl_cls.data[0])
+        lbl_ins_data = cuda.to_cpu(lbl_ins.data[0])
+        lbl_cls_16s = utils.resize_image(lbl_cls_data, shape_16s)
+        lbl_ins_16s = utils.resize_image(lbl_ins_data, shape_16s)
+        rois_16s = (rois / 16.0).astype(np.int32)
+
+        try:
+            roi_clss, roi_segs = utils.label_rois(
+                rois_16s, lbl_ins_16s, lbl_cls_16s)
+        except Exception:
+            return Variable(xp.array(0, dtype=np.float32),
+                            volatile='auto')
+
+        loss_cls = 0
+        loss_seg = 0
+        n_loss_cls = 0
+        n_loss_seg = 0
+
+        n_rois = len(rois)
+
+        roi_clss_pred = np.zeros((n_rois,), dtype=np.int32)
+        lbl_cls_16s_pred = np.zeros(shape_16s, dtype=np.int32)
+        lbl_ins_16s_pred = np.zeros(shape_16s, dtype=np.int32)
+        lbl_ins_16s_pred.fill(-1)
+
+        for i_roi in xrange(n_rois):
+            roi_16s = rois_16s[i_roi]
+            roi_cls = roi_clss[i_roi]
+            roi_seg = roi_segs[i_roi]
+
+            roi_cls_var = xp.array([roi_cls], dtype=np.int32)
+            roi_cls_var = Variable(roi_cls_var, volatile='auto')
+
+            x1, y1, x2, y2 = roi_16s
+            roi_h = y2 - y1
+            roi_w = x2 - x1
+
+            if not (roi_h >= self.k and roi_w >= self.k):
+                continue
+            assert roi_h * roi_w > 0
+
+            roi_score = h_score[:, :, y1:y2, x1:x2]
+            assert roi_score.shape == (1, 2*self.k**2*(self.C+1), roi_h, roi_w)
+
+            assert self.k == 3
+            roi_score = functions.assemble_2d(roi_score, self.k)
+            assert roi_score.shape == (1, 2*(self.C+1), roi_h, roi_w)
+
+            roi_score = F.reshape(roi_score, (1, self.C+1, 2, roi_h, roi_w))
+
+            cls_score = F.max(roi_score, axis=2)
+            assert cls_score.shape == (1, self.C+1, roi_h, roi_w)
+            cls_score = F.sum(cls_score, axis=(2, 3))
+            assert cls_score.shape == (1, self.C+1)
+
+            a_loss_cls = F.softmax_cross_entropy(cls_score, roi_cls_var)
+            loss_cls += a_loss_cls
+            n_loss_cls += 1
+
+            roi_cls_pred = F.argmax(cls_score, axis=1)
+            roi_cls_pred = int(roi_cls_pred.data[0])
+            roi_clss_pred[i_roi] = roi_cls_pred
+
+            roi_score_io = roi_score[:, roi_cls, :, :, :]
+            assert roi_score_io.shape == (1, 2, roi_h, roi_w)
+
+            if roi_cls != 0:
+                roi_seg = roi_seg.astype(np.int32)
+                roi_seg = roi_seg[np.newaxis, :, :]
+                if xp == cupy:
+                    roi_seg = cuda.to_gpu(roi_seg, device=x.data.device)
+                roi_seg = Variable(roi_seg, volatile='auto')
+                a_loss_seg = F.softmax_cross_entropy(roi_score_io, roi_seg)
+                loss_seg += a_loss_seg
+                n_loss_seg += 1
+
+            roi_score_io = cuda.to_cpu(roi_score_io.data)[0]
+            roi_seg_pred = np.argmax(roi_score_io, axis=0)
+            roi_seg_pred = roi_seg_pred.astype(bool)
+
+            if roi_cls_pred != 0:
+                lbl_cls_16s_pred[y1:y2, x1:x2][roi_seg_pred] = roi_cls_pred
+                lbl_ins_16s_pred[y1:y2, x1:x2][roi_seg_pred] = i_roi
+
+        self.lbl_cls_pred = utils.resize_image(
+            lbl_cls_16s_pred, lbl_cls.shape[1:])
+        self.lbl_ins_pred = utils.resize_image(
+            lbl_ins_16s_pred, lbl_ins.shape[1:])
+        self.roi_clss = roi_clss
+        self.roi_clss_pred = roi_clss_pred
+
+        if n_loss_cls != 0:
+            loss_cls /= n_loss_cls
+        if n_loss_seg != 0:
+            loss_seg /= n_loss_seg
+        loss = loss_cls + loss_seg
+
+        accuracy = sklearn.metrics.accuracy_score(roi_clss, roi_clss_pred)
+
+        cls_iu = fcn.utils.label_accuracy_score(
+            lbl_cls_data, self.lbl_cls_pred, self.C+1)[2]
+        ins_iu = utils.instance_label_accuracy_score(
+            lbl_ins_data, self.lbl_ins_pred)
+
+        chainer.report({
+            'loss': loss,
+            'loss_cls': loss_cls,
+            'loss_seg': loss_seg,
+            'accuracy': accuracy,
+            'cls_iu': cls_iu,
+            'ins_iu': ins_iu,
+        }, self)
+
         return loss
