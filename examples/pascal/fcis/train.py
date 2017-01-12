@@ -90,7 +90,7 @@ def get_trainer(
     n_classes = len(dataset_train.class_names) - 1
     if model == 'normal':
         model = rfcn.models.FCISVGG(C=n_classes, k=7)
-    elif model == 'conv' :
+    elif model == 'conv':
         model = rfcn.models.CONVFCIS(C=n_classes, k=7)
     model.train = True
     fcn.utils.copy_chainermodel(vgg, model.trunk)
