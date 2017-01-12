@@ -6,43 +6,64 @@ import numpy as np
 import PIL.Image
 
 
-def label2instance_boxes(label_instance, label_class):
+def label2instance_boxes(label_instance, label_class,
+                         ignore_instance=-1, ignore_class=-1):
+    if not isinstance(ignore_instance, collections.Iterable):
+        ignore_instance = (ignore_instance,)
+    if not isinstance(ignore_class, collections.Iterable):
+        ignore_class = (ignore_class,)
     # instance_class is 'Class of the Instance'
     instance_classes = []
     boxes = []
     instances = np.unique(label_instance)
     for inst in instances:
+        if inst in ignore_instance:
+            continue
+
         mask_inst = label_instance == inst
         count = collections.Counter(label_class[mask_inst].tolist())
         instance_class = max(count.items(), key=lambda x: x[1])[0]
+
+        if instance_class in ignore_class:
+            continue
 
         where = np.argwhere(mask_inst)
         (y1, x1), (y2, x2) = where.min(0), where.max(0) + 1
 
         instance_classes.append(instance_class)
         boxes.append((x1, y1, x2, y2))
-    return instance_classes, boxes
+    return np.array(instance_classes), np.array(boxes)
 
 
-def draw_instance_boxes(img, boxes, instance_classes, captions,
-                        n_class, bg_class=0, draw_caption=True):
+def draw_instance_boxes(img, boxes, instance_classes, n_class,
+                        captions=None, bg_class=0):
     """Draw labeled rectangles on image.
 
-    Args:
-        - img (numpy.ndarray): RGB image.
-        - boxes (list of tuple): (x1, y1, x2, y2)
+    Parameters
+    ----------
+    img: numpy.ndarray
+        RGB image.
+    boxes: list of tuple
+        Bounding boxes (x1, y1, x2, y2).
 
-    Returns:
-        - img_viz (numpy.ndarray): RGB image.
+    Returns
+    -------
+    img_viz: numpy.ndarray
+        RGB image.
     """
-    if not (len(boxes) == len(instance_classes) == len(captions)):
-        raise ValueError
+    n_boxes = len(boxes)
+    assert n_boxes == len(instance_classes)
+    if captions is not None:
+        assert n_boxes == len(captions)
 
     img_viz = img.copy()
     cmap = fcn.utils.labelcolormap(n_class)
 
     CV_AA = 16
-    for box, inst_class, caption in zip(boxes, instance_classes, captions):
+    for i_box in xrange(n_boxes):
+        box = boxes[i_box]
+        inst_class = instance_classes[i_box]
+
         if inst_class == bg_class:
             continue
 
@@ -53,7 +74,8 @@ def draw_instance_boxes(img, boxes, instance_classes, captions,
         x1, y1, x2, y2 = box
         cv2.rectangle(img_viz, (x1, y1), (x2, y2), color[::-1], 2, CV_AA)
 
-        if draw_caption:
+        if captions is not None:
+            caption = captions[i_box]
             font_scale = 0.4
             ret, baseline = cv2.getTextSize(
                 caption, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)
@@ -85,11 +107,13 @@ def mask_to_bbox(mask):
     return bbox
 
 
-def label_to_bboxes(label, bg_label=-1):
+def label_to_bboxes(label, ignore_label=-1):
     """Convert label image to bounding boxes."""
+    if not isinstance(ignore_label, collections.Iterable):
+        ignore_label = (ignore_label,)
     bboxes = []
     for l in np.unique(label):
-        if l == bg_label:
+        if l in ignore_label:
             continue
         mask = label == l
         bbox = mask_to_bbox(mask)
