@@ -7,8 +7,32 @@ import PIL.Image
 
 
 def label2instance_boxes(label_instance, label_class,
-                         ignore_instance=-1, ignore_class=-1,
+                         ignore_instance=-1, ignore_class=(-1, 0),
                          return_masks=False):
+    """Convert instance label to boxes.
+
+    Parameters
+    ----------
+    label_instance: numpy.ndarray, (H, W)
+        Label image for instance id.
+    label_class: numpy.ndarray, (H, W)
+        Label image for class.
+    ignore_instance: int or tuple of int
+        Label value ignored about label_instance. (default: -1)
+    ignore_class: int or tuple of int
+        Label value ignored about label_class. (default: (-1, 0))
+    return_masks: bool
+        Flag to return each instance mask.
+
+    Returns
+    -------
+    instance_classes: numpy.ndarray, (n_instance,)
+        Class id for each instance.
+    boxes: (n_instance, 4)
+        Bounding boxes for each instance. (x1, y1, x2, y2)
+    instance_masks: numpy.ndarray, (n_instance, H, W), bool
+        Masks for each instance. Only returns when return_masks=True.
+    """
     if not isinstance(ignore_instance, collections.Iterable):
         ignore_instance = (ignore_instance,)
     if not isinstance(ignore_class, collections.Iterable):

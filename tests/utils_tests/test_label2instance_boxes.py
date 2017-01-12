@@ -29,7 +29,7 @@ def test_label2instance_boxes():
     img, lbl_cls, lbl_inst = get_instance_segmentation_data()
 
     inst_clss, bboxes, inst_masks = rfcn.utils.label2instance_boxes(
-        lbl_inst, lbl_cls, ignore_class=(-1, 0), return_masks=True)
+        lbl_inst, lbl_cls, return_masks=True)
 
     n_inst = 3
     height, width = img.shape[:2]
