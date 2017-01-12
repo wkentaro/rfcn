@@ -170,3 +170,40 @@ def get_bbox_overlap(bbox1, bbox2):
                  max(0, min(y12, y22) - max(y11, y21)))
     union = w1 * h1 + w2 * h2 - intersect
     return 1.0 * intersect / union
+
+
+def label_rois(rois, label_instance, label_class, overlap_thresh=0.5):
+    """Label rois for instance classes.
+
+    Parameters
+    ----------
+    rois: numpy.ndarray, (n_rois, 4)
+    label_instance: numpy.ndarray, (H, W)
+    label_class: numpy.ndarray, (H, W)
+    overlap_thresh: float, [0, 1]
+        Threshold to label as fg. (default: 0.5)
+
+    Returns
+    -------
+    roi_clss: list of int
+    roi_inst_masks: list of numpy.ndarray
+    """
+    inst_clss, inst_rois, inst_masks = label2instance_boxes(
+        label_instance, label_class, return_masks=True)
+    roi_clss = []
+    roi_inst_masks = []
+    for roi in rois:
+        overlaps = [get_bbox_overlap(roi, inst_roi) for inst_roi in inst_rois]
+        inst_ind = np.argmax(overlaps)
+        overlap = overlaps[inst_ind]
+
+        if overlap > overlap_thresh:
+            roi_cls = inst_clss[inst_ind]
+            x1, y1, x2, y2 = roi
+            roi_inst_mask = inst_masks[inst_ind][y1:y2, x1:x2]
+        else:
+            roi_cls = 0
+            roi_inst_mask = None
+        roi_clss.append(roi_cls)
+        roi_inst_masks.append(roi_inst_mask)
+    return roi_clss, roi_inst_masks
