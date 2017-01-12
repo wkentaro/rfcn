@@ -124,8 +124,6 @@ def get_trainer(
     def visualize_ss(target):
         datum = chainer.cuda.to_cpu(target.x.data[0])
         img = dataset_val.datum_to_img(datum).copy()
-        lbl_cls = chainer.cuda.to_cpu(target.lbl_cls.data[0])
-        lbl_ins = chainer.cuda.to_cpu(target.lbl_ins.data[0])
         rois = target.rois
         colors = fcn.utils.labelcolormap(21)
         # visualize true roi clss

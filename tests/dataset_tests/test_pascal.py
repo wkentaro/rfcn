@@ -1,6 +1,6 @@
 import cv2
-import matplotlib.pyplot as plt
 import fcn
+import matplotlib.pyplot as plt
 import numpy as np
 
 from rfcn.datasets.pascal import PascalInstanceSegmentationDataset
