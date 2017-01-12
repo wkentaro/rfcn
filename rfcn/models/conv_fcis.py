@@ -1,5 +1,4 @@
-# !/usr/bin/python 
-import itertools
+# !/usr/bin/python
 import PIL
 
 import chainer
@@ -7,19 +6,18 @@ import chainer.functions as F
 import chainer.links as L
 import numpy as np
 
-from rfcn.external.faster_rcnn.models.rpn import RPN
-from rfcn import utils
+from rfcn import functions
 from rfcn.models.fcis_vgg16 import VGG16Trunk
 
 
 class CONV_FCIS(chainer.Chain):
     def __init__(self, C, k=7):
         super(CONV_FCIS, self).__init__(
-            trunk = VGG16Trunk(),
-            conv_score = L.Convolution2D(512, 2 * k**2 * (C + 1), ksize=1),
+            trunk=VGG16Trunk(),
+            conv_score=L.Convolution2D(512, 2 * k**2 * (C + 1), ksize=1),
 
-            conv_1 = L.Convolution2D(2*(k**2), k, 11, pad=5),
-            conv_2 = L.Convolution2D(k, 1, 11, pad=5),
+            conv_1=L.Convolution2D(2*(k**2), k, 11, pad=5),
+            conv_2=L.Convolution2D(k, 1, 11, pad=5),
 
         )
 
@@ -38,14 +36,16 @@ class CONV_FCIS(chainer.Chain):
             Label image about object instances.
         """
         xp = chainer.cuda.get_array_module(x)
+        C = self.C
+        k = self.ksize
 
         # TODO(mukuact): need to load pre-trained weight
         h_conv5 = self.trunk(x)
         # (b_batch, 2 * k^2 * (C + 1), height/32, width/32)
         score = self.conv_score(h_conv5)
-        
+
         sc_shape = score.data.shape
-        
+
         _, _, height_32s, width_32s = sc_shape
         # grand truth
         t_label_inst_data = chainer.cuda.to_cpu(t_label_inst.data)
@@ -61,7 +61,7 @@ class CONV_FCIS(chainer.Chain):
         # get k**2 score map for 'ic'th category
         # and apply conv func to them
         # iks:[0, C+1+1, 2(C+1)+1, 3(C+1)+1, ...]
-        iks = np.arange(0, 2*(C+1)*(k**2), (C+1))   
+        iks = np.arange(0, 2*(C+1)*(k**2), (C+1))
         cls_likelihood = []
         for ic in xrange(C+1):
             # applying same convolution filter to the maps of each category
@@ -74,12 +74,12 @@ class CONV_FCIS(chainer.Chain):
         cls_likelihood = F.concat(cls_likelihood, axis=1)
 
         # roi's grand truth is assumed as center of roi
-        # grand truth is seemed to have a same resolution as the score map 
-        loss_cls = F.softmax_cross_entropy(cat_likelihood, t_label_cls_32s)
+        # grand truth is seemed to have a same resolution as the score map
+        loss_cls = F.softmax_cross_entropy(cls_likelihood, t_label_cls_32s)
 
         # get rois according to cls score
         # class is true and score > 0.7
-        rois = _get_rois(cls_likelihood, t_label_cls_32s)
+        rois = self._get_rois(cls_likelihood, t_label_cls_32s)
         loss_seg = chainer.Variable(xp.array(0, dtype=np.float32),
                                     volatile='auto')
         for roi in rois:
@@ -94,27 +94,27 @@ class CONV_FCIS(chainer.Chain):
             # assembling: (n_batch=1, 2*(C+1), roi_h, roi_w)
             h_score_assm = functions.assemble_2d(h_score_roi, self.k)
             # score map for inside/outside: (n_batch=1, C+1, 2, roi_h, roi_w)
-            # ([0,1,2,3, ...] -> [[0,1],[2,3],...] 
+            # ([0,1,2,3, ...] -> [[0,1],[2,3],...]
             h_score_assm = F.reshape(
-                h_score_assm, (n_batch, self.C+1, 2, roi_h, roi_w))
+                h_score_assm, (1, self.C+1, 2, roi_h, roi_w))
             # inside/outside likelihood: (n_batch=1, 2, roi_h, roi_w)
             h_score_inout = h_score_assm[:, cls_id]
 
-            # gt_roi_seg: (n_batch, roi_h, roi_w) 
-            # get centor of roi's instance number   
+            # gt_roi_seg: (n_batch, roi_h, roi_w)
+            # get centor of roi's instance number
             # remain only instance number gotten
             gt_roi_seg = t_label_inst_32s[y1:y2, x1:y2]
             roi_center = (roi_h/2,  roi_w/2)
             gt_seg = gt_roi_seg[roi_center]
-            gt_roi_seg = np.asarray(gt_roi_seg==gt_seg, dtype=np.int32)
+            gt_roi_seg = np.asarray(gt_roi_seg == gt_seg, dtype=np.int32)
 
             a_loss_seg = F.softmax_cross_entropy(h_score_inout, gt_roi_seg)
             loss_seg += a_loss_seg
 
         loss = loss_cls + loss_seg
         return loss
-        
-    def _get_rois(self, cls_likelihood, t_lable_cls):
+
+    def _get_rois(self, cls_likelihood, t_label_cls):
         '''git rois whose class score is true and high
 
         :param np.array cls_likelihood: (n_batch, C+1, height/32, width/32)
@@ -122,7 +122,6 @@ class CONV_FCIS(chainer.Chain):
         :param np.array t_label_cls: (n_batch, height/32, width/32)
             Grand truth label image about object class.
         '''
-        
         rois = []
         thre = 0.7
         _, height, width = t_label_cls.shape
@@ -131,20 +130,19 @@ class CONV_FCIS(chainer.Chain):
             # ignore background
             if cls_id == 0:
                 continue
-            # get mask that is above threshold 
+            # get mask that is above threshold
             # e.g.:[0, 0, 0, cls_id, cls_id, 0, 0, ....]
-            mask  = (a_cls > thre) * cls_id 
-            # mask 0 -> -2 (ignore) 
+            mask = (a_cls > thre) * cls_id
+            # mask 0 -> -2 (ignore)
             mask[mask == 0] = -2
-            # judgement that masked inference class is true or not 
+            # judgement that masked inference class is true or not
             # if true, return roi(cls_id, x1, y1, x2, y2)
-            true_class_inds = np.transpose(np.where(mask == t_lable_cls))
+            true_class_inds = np.transpose(np.where(mask == t_label_cls))
             for index in true_class_inds:
-                x1 = max(0, index[1] - 11/2) 
+                x1 = max(0, index[1] - 11/2)
                 x2 = min(width, index[1] + 11/2)
                 y1 = max(0, index[0] - 11/2)
                 y2 = min(height, index[0] + 11/2)
-                rois.append( (cls_id, x1, y1, x2, y2))
+                rois.append((cls_id, x1, y1, x2, y2))
 
         return rois
-
