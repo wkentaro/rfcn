@@ -99,11 +99,8 @@ class PascalInstanceSegmentationDataset(InstanceSegmentationDatasetBase):
         # get rois
         rois = utils.get_region_proposals(img)
         roi_clss, _ = utils.label_rois(rois, label_instance, label_class)
-        is_sample = np.array(roi_clss) != 0
-        n_pos = is_sample.sum()
-        p = np.random.choice(np.where(~is_sample)[0], n_pos)
-        is_sample[p] = True
-        rois = rois[is_sample]
+        samples = utils.get_positive_negative_samples(roi_clss != 0)
+        rois = rois[samples]
         return datum, label_class, label_instance, rois
 
 

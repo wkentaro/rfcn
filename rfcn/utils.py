@@ -186,7 +186,7 @@ def label_rois(rois, label_instance, label_class, overlap_thresh=0.5):
 
     Returns
     -------
-    roi_clss: list of int
+    roi_clss: numpy.ndarray, (n_rois,), numpy.int32
     roi_inst_masks: list of numpy.ndarray
     """
     inst_clss, inst_rois, inst_masks = label2instance_boxes(
@@ -207,6 +207,7 @@ def label_rois(rois, label_instance, label_class, overlap_thresh=0.5):
             roi_inst_mask = None
         roi_clss.append(roi_cls)
         roi_inst_masks.append(roi_inst_mask)
+    roi_clss = np.array(roi_clss, dtype=np.int32)
     return roi_clss, roi_inst_masks
 
 
@@ -241,3 +242,16 @@ def get_region_proposals(img, kvals=(50, 200, 3), min_size=20,
     rois = [(r.left(), r.top(), r.right(), r.bottom()) for r in rects]
     rois = np.array(rois, dtype=np.int32)
     return rois
+
+
+def get_positive_negative_samples(is_positive, negative_ratio=1.0):
+    assert isinstance(is_positive, np.ndarray)
+    assert is_positive.dtype == bool
+    n_positive = is_positive.sum()
+    n_negative = int(negative_ratio * n_positive)
+    # get samples for specified negative ratio
+    samples = np.where(is_positive)[0]
+    is_negative = ~is_positive
+    negative_samples = np.random.choice(np.where(is_negative)[0], n_negative)
+    samples = np.hstack((samples, negative_samples))
+    return samples
