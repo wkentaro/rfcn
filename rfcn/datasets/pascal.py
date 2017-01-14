@@ -6,7 +6,6 @@ import PIL.Image
 import scipy
 
 from rfcn.datasets.instance_segmentation import InstanceSegmentationDatasetBase
-from rfcn import utils
 
 
 class PascalInstanceSegmentationDataset(InstanceSegmentationDatasetBase):
@@ -36,9 +35,8 @@ class PascalInstanceSegmentationDataset(InstanceSegmentationDatasetBase):
     ])
     mean_bgr = np.array([104.00698793, 116.66876762, 122.67891434])
 
-    def __init__(self, data_type, rp=False):
+    def __init__(self, data_type):
         assert data_type in ('train', 'val')
-        self.rp = rp
         dataset_dir = chainer.dataset.get_dataset_directory(
             'pascal/VOCdevkit/VOC2012')
         imgsets_file = osp.join(
@@ -94,14 +92,7 @@ class PascalInstanceSegmentationDataset(InstanceSegmentationDatasetBase):
         label_instance = PIL.Image.open(seg_object_file)
         label_instance = np.array(label_instance, dtype=np.int32)
         label_instance[label_instance == 255] = -1
-        if not self.rp:
-            return datum, label_class, label_instance
-        # get rois
-        rois = utils.get_region_proposals(img)
-        roi_clss, _ = utils.label_rois(rois, label_instance, label_class)
-        samples = utils.get_positive_negative_samples(roi_clss != 0)
-        rois = rois[samples]
-        return datum, label_class, label_instance, rois
+        return datum, label_class, label_instance
 
 
 if __name__ == '__main__':

@@ -11,9 +11,8 @@ class InstanceSegmentationDatasetBase(fcn.datasets.SegmentationDatasetBase):
         datum, label_class, label_instance = self.get_example(i)
         img = self.datum_to_img(datum)
 
-        label_instance[label_instance == -1] = 0
-        img_viz = skimage.color.label2rgb(label_instance, img, bg_label=0)
-        img_viz[label_instance == -1] = (0, 0, 0)
+        label_instance[label_class == 0] = -1
+        img_viz = skimage.color.label2rgb(label_instance, img)
         img_viz = (img_viz * 255).astype(np.uint8)
 
         instance_classes, boxes = rfcn.utils.label2instance_boxes(

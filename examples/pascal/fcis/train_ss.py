@@ -206,10 +206,8 @@ def main():
     out = args.out
     resume = args.resume
 
-    dataset_train = rfcn.datasets.PascalInstanceSegmentationDataset(
-        'train', rp=True)
-    dataset_val = rfcn.datasets.PascalInstanceSegmentationDataset(
-        'val', rp=True)
+    dataset_train = rfcn.datasets.PascalInstanceSegmentationRPDataset('train')
+    dataset_val = rfcn.datasets.PascalInstanceSegmentationRPDataset('val')
 
     optimizer = chainer.optimizers.Adam(alpha=0.002)
 
