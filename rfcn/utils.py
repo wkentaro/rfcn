@@ -1,6 +1,7 @@
 import collections
 
 import cv2
+import dlib
 import fcn
 import numpy as np
 import PIL.Image
@@ -230,3 +231,13 @@ def instance_label_accuracy_score(lbl_ins1, lbl_ins2):
             best_overlap = max(best_overlap, overlap)
         best_overlaps.append(best_overlap)
     return np.mean(best_overlaps)
+
+
+def get_region_proposals(img, kvals=(50, 200, 3), min_size=20,
+                         max_merging_iterations=50):
+    rects = []
+    dlib.find_candidate_object_locations(
+        img, rects, kvals, min_size, max_merging_iterations)
+    rois = [(r.left(), r.top(), r.right(), r.bottom()) for r in rects]
+    rois = np.array(rois, dtype=np.int32)
+    return rois

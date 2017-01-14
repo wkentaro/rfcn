@@ -1,5 +1,4 @@
 import cv2
-import dlib
 import fcn
 import matplotlib.pyplot as plt
 import nose.tools
@@ -13,13 +12,7 @@ from test_label2instance_boxes import get_instance_segmentation_data
 def test_label_rois():
     img, lbl_cls, lbl_inst = get_instance_segmentation_data()
 
-    rects = []
-    dlib.find_candidate_object_locations(img, rects, min_size=500)
-    rois = []
-    for rect in rects:
-        x1, y1, x2, y2 = rect.left(), rect.top(), rect.right(), rect.bottom()
-        rois.append((x1, y1, x2, y2))
-    rois = np.array(rois)
+    rois = rfcn.utils.get_region_proposals(img, min_size=500)
 
     roi_clss, roi_inst_masks = rfcn.utils.label_rois(
         rois, lbl_inst, lbl_cls, overlap_thresh=0.5)

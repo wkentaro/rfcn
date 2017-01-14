@@ -1,7 +1,6 @@
 import os.path as osp
 
 import chainer
-import dlib
 import numpy as np
 import PIL.Image
 import scipy
@@ -97,13 +96,8 @@ class PascalInstanceSegmentationDataset(InstanceSegmentationDatasetBase):
         label_instance[label_instance == 255] = -1
         if not self.rp:
             return datum, label_class, label_instance
-        rects = []
-        dlib.find_candidate_object_locations(img, rects)
-        rois = []
-        for d in rects:
-            x1, y1, x2, y2 = d.left(), d.top(), d.right(), d.bottom()
-            rois.append((x1, y1, x2, y2))
-        rois = np.array(rois)
+        # get rois
+        rois = utils.get_region_proposals(img)
         roi_clss, _ = utils.label_rois(rois, label_instance, label_class)
         is_sample = np.array(roi_clss) != 0
         n_pos = is_sample.sum()
