@@ -1,7 +1,4 @@
-import cv2
 import fcn
-import numpy as np
-import skimage.color
 
 from rfcn.datasets.pascal import PascalInstanceSegmentationDataset
 from rfcn import utils
@@ -30,9 +27,6 @@ class PascalInstanceSegmentationRPDataset(PascalInstanceSegmentationDataset):
         viz_lbl = utils.visualize_instance_segmentation(
             lbl_ins, lbl_cls, img, self.class_names)
         # visualize rois
-        viz_all = viz_lbl.copy()
-        viz_pos = viz_lbl.copy()
-        colors = fcn.utils.labelcolormap(len(self.class_names))
         roi_clss, _ = utils.label_rois(rois, lbl_ins, lbl_cls)
         viz_all = utils.draw_instance_boxes(
             img, rois, roi_clss, len(self.class_names), bg_class=-1)

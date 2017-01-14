@@ -1,6 +1,4 @@
 import fcn
-import numpy as np
-import skimage.color
 
 from rfcn import utils
 
