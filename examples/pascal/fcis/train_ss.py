@@ -10,9 +10,7 @@ import sys
 
 import chainer
 from chainer.training import extensions
-import cv2
 import fcn
-import numpy as np
 import yaml
 
 import rfcn
@@ -124,26 +122,34 @@ def get_trainer(
     def visualize_ss(target):
         datum = chainer.cuda.to_cpu(target.x.data[0])
         img = dataset_val.datum_to_img(datum).copy()
+        class_names = dataset_val.class_names
+        n_class = len(class_names)
         rois = target.rois
-        colors = fcn.utils.labelcolormap(21)
-        # visualize true roi clss
+        # visualize true
+        lbl_ins = target.lbl_ins
+        lbl_cls = target.lbl_cls
         roi_clss = target.roi_clss
-        viz_true = img.copy()
-        for roi, roi_cls in zip(rois, roi_clss):
-            if roi_cls == 0:
-                continue
-            color = (colors[roi_cls][::-1] * 255).astype(np.uint8).tolist()
-            x1, y1, x2, y2 = roi
-            cv2.rectangle(viz_true, (x1, y1), (x2, y2), color)
-        viz_pred = img.copy()
+        viz_lbl_true = rfcn.utils.visualize_instance_segmentation(
+            lbl_ins, lbl_cls, img, class_names)
+        viz_rois_all_true = rfcn.utils.draw_instance_boxes(
+            img, rois, roi_clss, n_class, bg_class=-1)
+        viz_rois_pos_true = rfcn.utils.draw_instance_boxes(
+            img, rois, roi_clss, n_class, bg_class=0)
+        viz_true = fcn.utils.get_tile_image(
+            [viz_lbl_true, viz_rois_all_true, viz_rois_pos_true], (1, 3))
+        # visualize prediction
+        lbl_ins_pred = target.lbl_ins_pred
+        lbl_cls_pred = target.lbl_cls_pred
         roi_clss_pred = target.roi_clss_pred
-        for roi, roi_cls in zip(rois, roi_clss_pred):
-            if roi_cls == 0:
-                continue
-            color = (colors[roi_cls][::-1] * 255).astype(np.uint8).tolist()
-            x1, y1, x2, y2 = roi
-            cv2.rectangle(viz_pred, (x1, y1), (x2, y2), color)
-        return fcn.utils.get_tile_image([viz_true, viz_pred], (1, 2))
+        viz_lbl_pred = rfcn.utils.visualize_instance_segmentation(
+            lbl_ins_pred, lbl_cls_pred, img, class_names)
+        viz_rois_all_pred = rfcn.utils.draw_instance_boxes(
+            img, rois, roi_clss_pred, n_class, bg_class=-1)
+        viz_rois_pos_pred = rfcn.utils.draw_instance_boxes(
+            img, rois, roi_clss_pred, n_class, bg_class=0)
+        viz_pred = fcn.utils.get_tile_image(
+            [viz_lbl_pred, viz_rois_all_pred, viz_rois_pos_pred], (1, 3))
+        return fcn.utils.get_tile_image([viz_true, viz_pred], (2, 1))
 
     trainer.extend(
         fcn.training.extensions.ImageVisualizer(

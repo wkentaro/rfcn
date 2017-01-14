@@ -285,6 +285,8 @@ class FCISVGG_SS(FCISVGG):
     def __call__(self, x, lbl_cls, lbl_ins, rois):
         xp = cuda.get_array_module(x.data)
         rois = cuda.to_cpu(rois.data[0])
+        lbl_cls = cuda.to_cpu(lbl_cls.data[0])
+        lbl_ins = cuda.to_cpu(lbl_ins.data[0])
 
         self.x = x
         self.lbl_cls = lbl_cls
@@ -302,21 +304,18 @@ class FCISVGG_SS(FCISVGG):
         assert h_score.shape[:2] == (1, 2*self.k**2*(self.C+1))
 
         shape_16s = h_conv4.shape[2:4]
-        lbl_cls_data = cuda.to_cpu(lbl_cls.data[0])
-        lbl_ins_data = cuda.to_cpu(lbl_ins.data[0])
-        lbl_cls_16s = utils.resize_image(lbl_cls_data, shape_16s)
-        lbl_ins_16s = utils.resize_image(lbl_ins_data, shape_16s)
+        lbl_cls_16s = utils.resize_image(lbl_cls, shape_16s)
+        lbl_ins_16s = utils.resize_image(lbl_ins, shape_16s)
         rois_16s = (rois / 16.0).astype(np.int32)
 
         try:
             roi_clss, roi_segs = utils.label_rois(
                 rois_16s, lbl_ins_16s, lbl_cls_16s)
         except Exception:
-            return Variable(xp.array(0, dtype=np.float32),
-                            volatile='auto')
+            return Variable(xp.array(0, dtype=np.float32), volatile='auto')
 
-        loss_cls = 0
-        loss_seg = 0
+        loss_cls = Variable(xp.array(0, dtype=np.float32), volatile='auto')
+        loss_seg = Variable(xp.array(0, dtype=np.float32), volatile='auto')
         n_loss_cls = 0
         n_loss_seg = 0
 
@@ -387,9 +386,9 @@ class FCISVGG_SS(FCISVGG):
                 lbl_ins_16s_pred[y1:y2, x1:x2][roi_seg_pred] = i_roi
 
         self.lbl_cls_pred = utils.resize_image(
-            lbl_cls_16s_pred, lbl_cls.shape[1:])
+            lbl_cls_16s_pred, lbl_cls.shape)
         self.lbl_ins_pred = utils.resize_image(
-            lbl_ins_16s_pred, lbl_ins.shape[1:])
+            lbl_ins_16s_pred, lbl_ins.shape)
         self.roi_clss = roi_clss
         self.roi_clss_pred = roi_clss_pred
 
@@ -402,9 +401,9 @@ class FCISVGG_SS(FCISVGG):
         accuracy = sklearn.metrics.accuracy_score(roi_clss, roi_clss_pred)
 
         cls_iu = fcn.utils.label_accuracy_score(
-            lbl_cls_data, self.lbl_cls_pred, self.C+1)[2]
+            lbl_cls, self.lbl_cls_pred, self.C+1)[2]
         ins_iu = utils.instance_label_accuracy_score(
-            lbl_ins_data, self.lbl_ins_pred)
+            lbl_ins, self.lbl_ins_pred)
 
         chainer.report({
             'loss': loss,
