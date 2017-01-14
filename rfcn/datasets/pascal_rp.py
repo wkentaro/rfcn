@@ -33,13 +33,11 @@ class PascalInstanceSegmentationRPDataset(PascalInstanceSegmentationDataset):
         viz_all = viz_lbl.copy()
         viz_pos = viz_lbl.copy()
         colors = fcn.utils.labelcolormap(len(self.class_names))
-        rois_clss, _ = utils.label_rois(rois, lbl_ins, lbl_cls)
-        for roi, roi_cls in zip(rois, rois_clss):
-            x1, y1, x2, y2 = roi
-            color = (colors[roi_cls][::-1] * 255).astype(np.uint8).tolist()
-            cv2.rectangle(viz_all, (x1, y1), (x2, y2), color)
-            if roi_cls != 0:
-                cv2.rectangle(viz_pos, (x1, y1), (x2, y2), color)
+        roi_clss, _ = utils.label_rois(rois, lbl_ins, lbl_cls)
+        viz_all = utils.draw_instance_boxes(
+            img, rois, roi_clss, len(self.class_names), bg_class=-1)
+        viz_pos = utils.draw_instance_boxes(
+            img, rois, roi_clss, len(self.class_names), bg_class=0)
         return fcn.utils.get_tile_image([viz_lbl, viz_all, viz_pos], (1, 3))
 
 

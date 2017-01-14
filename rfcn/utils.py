@@ -107,7 +107,7 @@ def draw_instance_boxes(img, boxes, instance_classes, n_class,
         color = (color * 255).tolist()
 
         x1, y1, x2, y2 = box
-        cv2.rectangle(img_viz, (x1, y1), (x2, y2), color[::-1], 2, CV_AA)
+        cv2.rectangle(img_viz, (x1, y1), (x2, y2), color[::-1], 0, CV_AA)
 
         if captions is not None:
             caption = captions[i_box]
