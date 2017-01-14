@@ -322,9 +322,8 @@ class FCISVGG_SS(FCISVGG):
         n_rois = len(rois)
 
         roi_clss_pred = np.zeros((n_rois,), dtype=np.int32)
-        lbl_cls_16s_pred = np.zeros(shape_16s, dtype=np.int32)
-        lbl_ins_16s_pred = np.zeros(shape_16s, dtype=np.int32)
-        lbl_ins_16s_pred.fill(-1)
+        cls_scores = np.zeros((n_rois,), dtype=np.float32)
+        roi_masks_pred = [None] * n_rois
 
         for i_roi in xrange(n_rois):
             roi_16s = rois_16s[i_roi]
@@ -354,6 +353,8 @@ class FCISVGG_SS(FCISVGG):
             cls_score = F.max(roi_score, axis=2)
             assert cls_score.shape == (1, self.C+1, roi_h, roi_w)
             cls_score = F.sum(cls_score, axis=(2, 3))
+            cls_score /= (roi_h * roi_w)
+            cls_scores[i_roi] = float(F.argmax(cls_score, axis=1).data[0])
             assert cls_score.shape == (1, self.C+1)
 
             a_loss_cls = F.softmax_cross_entropy(cls_score, roi_cls_var)
@@ -382,15 +383,7 @@ class FCISVGG_SS(FCISVGG):
             roi_seg_pred = roi_seg_pred.astype(bool)
 
             if roi_cls_pred != 0:
-                lbl_cls_16s_pred[y1:y2, x1:x2][roi_seg_pred] = roi_cls_pred
-                lbl_ins_16s_pred[y1:y2, x1:x2][roi_seg_pred] = i_roi
-
-        self.lbl_cls_pred = utils.resize_image(
-            lbl_cls_16s_pred, lbl_cls.shape)
-        self.lbl_ins_pred = utils.resize_image(
-            lbl_ins_16s_pred, lbl_ins.shape)
-        self.roi_clss = roi_clss
-        self.roi_clss_pred = roi_clss_pred
+                roi_masks_pred[i_roi] = roi_seg_pred
 
         if n_loss_cls != 0:
             loss_cls /= n_loss_cls
@@ -398,7 +391,40 @@ class FCISVGG_SS(FCISVGG):
             loss_seg /= n_loss_seg
         loss = loss_cls + loss_seg
 
+        self.roi_clss = roi_clss
+        self.roi_clss_pred = roi_clss_pred
+
         accuracy = sklearn.metrics.accuracy_score(roi_clss, roi_clss_pred)
+
+        keep = roi_clss_pred != 0
+        rois = rois[keep]
+        roi_clss_pred = roi_clss_pred[keep]
+        cls_scores = cls_scores[keep]
+        roi_masks_pred = np.array(roi_masks_pred)[keep]
+        lbl_ins_pred = np.zeros_like(lbl_ins)
+        lbl_cls_pred = np.zeros_like(lbl_cls)
+        rois_exists = []
+        for i_roi in np.argsort(cls_scores):
+            roi = rois[i_roi]
+            obj_id = i_roi
+            if rois_exists:
+                overlaps = [(utils.get_bbox_overlap(roi, r), i)
+                            for r, i in rois_exists]
+                max_overlap, id_max_overlap = max(overlaps)
+                if max_overlap > 0.3:
+                    obj_id = id_max_overlap
+            rois_exists.append((roi, obj_id))
+            x1, y1, x2, y2 = roi
+            roi_mask_pred = roi_masks_pred[i_roi]
+            roi_mask_pred = utils.resize_image(
+                roi_mask_pred.astype(np.uint8), (y2-y1, x2-x1))
+            roi_mask_pred = roi_mask_pred == 1
+            roi_cls = roi_clss_pred[i_roi]
+            lbl_ins_pred[y1:y2, x1:x2][roi_mask_pred] = obj_id
+            lbl_cls_pred[y1:y2, x1:x2][roi_mask_pred] = roi_cls
+
+        self.lbl_cls_pred = lbl_cls_pred
+        self.lbl_ins_pred = lbl_ins_pred
 
         cls_iu = fcn.utils.label_accuracy_score(
             lbl_cls, self.lbl_cls_pred, self.C+1)[2]
