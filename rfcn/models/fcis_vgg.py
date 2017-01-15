@@ -365,7 +365,7 @@ class FCISVGG_SS(chainer.Chain):
             assert cls_score.shape == (1, self.C+1, roi_h, roi_w)
             cls_score = F.sum(cls_score, axis=(2, 3))
             cls_score /= (roi_h * roi_w)
-            cls_scores[i_roi] = float(F.argmax(cls_score, axis=1).data[0])
+            cls_scores[i_roi] = float(F.max(cls_score, axis=1).data[0])
             assert cls_score.shape == (1, self.C+1)
 
             a_loss_cls = F.softmax_cross_entropy(cls_score, roi_cls_var)
