@@ -27,12 +27,6 @@ def get_trainer(
         interval_log=10,
         interval_eval=1000,
         ):
-
-    if isinstance(gpu, list):
-        gpus = gpu
-    else:
-        gpus = [gpu]
-
     if out is None:
         if resume:
             out = osp.dirname(resume)
@@ -72,12 +66,8 @@ def get_trainer(
     print('<' * 20 + ' Parameters ' + '<' * 20)
 
     # 1. dataset
-    if len(gpus) > 1:
-        iter_train = chainer.iterators.MultiprocessIterator(
-            dataset_train, batch_size=len(gpus), shared_mem=10000000)
-    else:
-        iter_train = chainer.iterators.SerialIterator(
-            dataset_train, batch_size=1)
+    iter_train = chainer.iterators.SerialIterator(
+        dataset_train, batch_size=1)
     iter_val = chainer.iterators.SerialIterator(
         dataset_val, batch_size=1, repeat=False, shuffle=False)
 
@@ -91,30 +81,21 @@ def get_trainer(
     model.train = True
     fcn.utils.copy_chainermodel(vgg, model.trunk)
 
-    if len(gpus) > 1 or gpus[0] >= 0:
-        chainer.cuda.get_device(gpus[0]).use()
-    if len(gpus) == 1 and gpus[0] >= 0:
-        model.to_gpu()
+    chainer.cuda.get_device(gpu).use()
+    model.to_gpu()
 
     # 3. optimizer
     optimizer.setup(model)
 
     # 4. trainer
-    if len(gpus) > 1:
-        devices = {'main': gpus[0]}
-        for gpu in gpus[1:]:
-            devices['gpu{}'.format(gpu)] = gpu
-        updater = chainer.training.ParallelUpdater(
-            iter_train, optimizer, devices=devices)
-    else:
-        updater = chainer.training.StandardUpdater(
-            iter_train, optimizer, device=gpus[0])
+    updater = chainer.training.StandardUpdater(
+        iter_train, optimizer, device=gpu)
     trainer = chainer.training.Trainer(
         updater, (max_iter, 'iteration'), out=out)
 
     trainer.extend(
         fcn.training.extensions.TestModeEvaluator(
-            iter_val, model, device=gpus[0]),
+            iter_val, model, device=gpu),
         trigger=(interval_eval, 'iteration'),
         invoke_before_training=False,
     )
@@ -159,7 +140,7 @@ def get_trainer(
             model,
             visualize_ss,
             out='viz_train/{.updater.iteration}.jpg',
-            device=gpus[0],
+            device=gpu,
         ),
         trigger=(10, 'iteration'),
         invoke_before_training=True,
