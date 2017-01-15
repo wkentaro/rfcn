@@ -325,7 +325,7 @@ class FCISVGG_SS(chainer.Chain):
             roi_clss, roi_segs = utils.label_rois(
                 rois_ns, lbl_ins_ns, lbl_cls_ns)
         except ValueError:
-            return Variable(xp.array(0, dtype=np.float32), volatile='auto')
+            return
 
         loss_cls = Variable(xp.array(0, dtype=np.float32), volatile='auto')
         loss_seg = Variable(xp.array(0, dtype=np.float32), volatile='auto')
@@ -403,10 +403,15 @@ class FCISVGG_SS(chainer.Chain):
             loss_seg /= n_loss_seg
         loss = loss_cls + loss_seg
 
+        self.loss_cls = float(loss_cls.data)
+        self.loss_seg = float(loss_seg.data)
+        self.loss = float(loss.data)
+
         self.roi_clss = roi_clss
         self.roi_clss_pred = roi_clss_pred
 
-        accuracy = sklearn.metrics.accuracy_score(roi_clss, roi_clss_pred)
+        self.accuracy_cls = sklearn.metrics.accuracy_score(
+            roi_clss, roi_clss_pred)
 
         keep = roi_clss_pred != 0
         rois = rois[keep]
@@ -439,18 +444,18 @@ class FCISVGG_SS(chainer.Chain):
         self.lbl_cls_pred = lbl_cls_pred
         self.lbl_ins_pred = lbl_ins_pred
 
-        cls_iu = fcn.utils.label_accuracy_score(
+        self.iu_lbl_cls = fcn.utils.label_accuracy_score(
             lbl_cls, self.lbl_cls_pred, self.C+1)[2]
-        ins_iu = utils.instance_label_accuracy_score(
+        self.iu_lbl_ins = utils.instance_label_accuracy_score(
             lbl_ins, self.lbl_ins_pred)
 
         chainer.report({
-            'loss': loss,
-            'loss_cls': loss_cls,
-            'loss_seg': loss_seg,
-            'accuracy': accuracy,
-            'cls_iu': cls_iu,
-            'ins_iu': ins_iu,
+            'loss': self.loss,
+            'loss_cls': self.loss_cls,
+            'loss_seg': self.loss_seg,
+            'accuracy': self.accuracy_cls,
+            'cls_iu': self.iu_lbl_cls,
+            'ins_iu': self.iu_lbl_ins,
         }, self)
 
         return loss
