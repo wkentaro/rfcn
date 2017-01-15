@@ -324,7 +324,7 @@ class FCISVGG_SS(chainer.Chain):
         try:
             roi_clss, roi_segs = utils.label_rois(
                 rois_ns, lbl_ins_ns, lbl_cls_ns)
-        except Exception:
+        except ValueError:
             return Variable(xp.array(0, dtype=np.float32), volatile='auto')
 
         loss_cls = Variable(xp.array(0, dtype=np.float32), volatile='auto')
