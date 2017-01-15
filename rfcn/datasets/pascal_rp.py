@@ -8,6 +8,10 @@ class PascalInstanceSegmentationRPDataset(PascalInstanceSegmentationDataset):
 
     """Pascal VOC2012 instance segmentation dataset with region proposals"""
 
+    def __init__(self, data_type, negative_ratio=1.0):
+        super(PascalInstanceSegmentationRPDataset, self).__init__(data_type)
+        self.negative_ratio = negative_ratio
+
     def get_example(self, i):
         datum, lbl_cls, lbl_ins = \
             super(PascalInstanceSegmentationRPDataset, self).get_example(i)
@@ -16,7 +20,8 @@ class PascalInstanceSegmentationRPDataset(PascalInstanceSegmentationDataset):
         datum = self.img_to_datum(img)
         rois = utils.get_region_proposals(img)
         roi_clss, _ = utils.label_rois(rois, lbl_ins, lbl_cls)
-        samples = utils.get_positive_negative_samples(roi_clss != 0)
+        samples = utils.get_positive_negative_samples(
+            roi_clss != 0, negative_ratio=self.negative_ratio)
         rois = rois[samples]
         return datum, lbl_cls, lbl_ins, rois
 
