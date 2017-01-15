@@ -82,7 +82,7 @@ class PascalInstanceSegmentationDataset(InstanceSegmentationDatasetBase):
         # load image
         img_file = data_file['img']
         img = scipy.misc.imread(img_file, mode='RGB')
-        scale = np.sqrt(50000. / (img.shape[0] * img.shape[1]))
+        scale = np.sqrt(150000. / (img.shape[0] * img.shape[1]))
         shape = int(scale * img.shape[0]), int(scale * img.shape[1])
         img = utils.resize_image(img, shape)
         datum = self.img_to_datum(img)
