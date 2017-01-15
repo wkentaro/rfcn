@@ -87,7 +87,7 @@ def get_trainer(
     chainer.serializers.load_hdf5(vgg_path, vgg)
 
     n_classes = len(dataset_train.class_names) - 1
-    model = rfcn.models.FCISVGG_SS(C=n_classes, k=3)
+    model = rfcn.models.FCISVGG_SS(C=n_classes, k=7)
     model.train = True
     fcn.utils.copy_chainermodel(vgg, model.trunk)
 

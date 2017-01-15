@@ -344,7 +344,6 @@ class FCISVGG_SS(FCISVGG):
             roi_score = h_score[:, :, y1:y2, x1:x2]
             assert roi_score.shape == (1, 2*self.k**2*(self.C+1), roi_h, roi_w)
 
-            assert self.k == 3
             roi_score = functions.assemble_2d(roi_score, self.k)
             assert roi_score.shape == (1, 2*(self.C+1), roi_h, roi_w)
 
