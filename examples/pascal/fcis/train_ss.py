@@ -151,11 +151,16 @@ def get_trainer(
             [viz_lbl_pred, viz_rois_all_pred, viz_rois_pos_pred], (1, 3))
         return fcn.utils.get_tile_image([viz_true, viz_pred], (2, 1))
 
+    os.mkdir(osp.join(out, 'viz_train'))
     trainer.extend(
         fcn.training.extensions.ImageVisualizer(
             chainer.iterators.SerialIterator(
                 dataset_train, batch_size=1, shuffle=False),
-            model, visualize_ss, device=gpus[0]),
+            model,
+            visualize_ss,
+            out='viz_train/{.updater.iteration}.jpg',
+            device=gpus[0],
+        ),
         trigger=(10, 'iteration'),
         invoke_before_training=True,
     )
