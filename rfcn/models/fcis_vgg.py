@@ -58,6 +58,7 @@ class VGG16Trunk(chainer.Chain):
         h = F.relu(self.conv4_1(h))
         h = F.relu(self.conv4_2(h))
         h = F.relu(self.conv4_3(h))
+        self.h_conv4_8s = h  # 1/8
         h = F.max_pooling_2d(h, 2, stride=2)
         self.h_conv4 = h  # 1/16
 
@@ -280,7 +281,20 @@ class FCISVGG_RP(FCISVGG):
         return loss
 
 
-class FCISVGG_SS(FCISVGG):
+class FCISVGG_SS(chainer.Chain):
+
+    def __init__(self, C, k=7):
+        super(FCISVGG_SS, self).__init__()
+        self.C = C
+        self.k = k
+
+        # feature extraction:
+        self.add_link('trunk', VGG16Trunk())
+
+        # translation-aware instance inside/outside score map:
+        # out_channel is 2 * k^2 * (C + 1): 2 is inside/outside,
+        # k is kernel size, and (C + 1) is object categories and background.
+        self.add_link('score_fr', L.Convolution2D(512, 2*k**2*(C+1), ksize=1))
 
     def __call__(self, x, lbl_cls, lbl_ins, rois):
         xp = cuda.get_array_module(x.data)
@@ -295,22 +309,21 @@ class FCISVGG_SS(FCISVGG):
 
         self.trunk(x)
 
-        # (1, 512, height/16, width/16)
-        h_conv4 = self.trunk.h_conv4  # 1/16
-        assert h_conv4.shape[:2] == (1, 512)
+        down_scale = 8.0
+        h_feature = self.trunk.h_conv4_8s
 
-        # (1, 2*k^2*(C+1), height/16, width/16)
-        h_score = self.conv_score(h_conv4)  # 1/16
+        # (1, 2*k^2*(C+1), height/down_scale, width/down_scale)
+        h_score = self.score_fr(h_feature)  # 1/down_scale
         assert h_score.shape[:2] == (1, 2*self.k**2*(self.C+1))
 
-        shape_16s = h_conv4.shape[2:4]
-        lbl_cls_16s = utils.resize_image(lbl_cls, shape_16s)
-        lbl_ins_16s = utils.resize_image(lbl_ins, shape_16s)
-        rois_16s = (rois / 16.0).astype(np.int32)
+        shape_ns = h_feature.shape[2:4]
+        lbl_cls_ns = utils.resize_image(lbl_cls, shape_ns)
+        lbl_ins_ns = utils.resize_image(lbl_ins, shape_ns)
+        rois_ns = (rois / down_scale).astype(np.int32)
 
         try:
             roi_clss, roi_segs = utils.label_rois(
-                rois_16s, lbl_ins_16s, lbl_cls_16s)
+                rois_ns, lbl_ins_ns, lbl_cls_ns)
         except Exception:
             return Variable(xp.array(0, dtype=np.float32), volatile='auto')
 
@@ -326,14 +339,14 @@ class FCISVGG_SS(FCISVGG):
         roi_masks_pred = [None] * n_rois
 
         for i_roi in xrange(n_rois):
-            roi_16s = rois_16s[i_roi]
+            roi_ns = rois_ns[i_roi]
             roi_cls = roi_clss[i_roi]
             roi_seg = roi_segs[i_roi]
 
             roi_cls_var = xp.array([roi_cls], dtype=np.int32)
             roi_cls_var = Variable(roi_cls_var, volatile='auto')
 
-            x1, y1, x2, y2 = roi_16s
+            x1, y1, x2, y2 = roi_ns
             roi_h = y2 - y1
             roi_w = x2 - x1
 
