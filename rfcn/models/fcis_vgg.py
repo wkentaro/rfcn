@@ -414,6 +414,7 @@ class FCISVGG_SS(chainer.Chain):
         cls_scores = cls_scores[keep]
         roi_masks_pred = np.array(roi_masks_pred)[keep]
         lbl_ins_pred = np.zeros_like(lbl_ins)
+        lbl_ins_pred.fill(-1)
         lbl_cls_pred = np.zeros_like(lbl_cls)
         rois_exists = []
         for i_roi in np.argsort(cls_scores):
