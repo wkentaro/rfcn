@@ -302,6 +302,9 @@ class FCISVGG_SS(chainer.Chain):
         lbl_cls = cuda.to_cpu(lbl_cls.data[0])
         lbl_ins = cuda.to_cpu(lbl_ins.data[0])
 
+        if rois.size == 0:
+            return
+
         self.x = x
         self.lbl_cls = lbl_cls
         self.lbl_ins = lbl_ins
@@ -321,11 +324,7 @@ class FCISVGG_SS(chainer.Chain):
         lbl_ins_ns = utils.resize_image(lbl_ins, shape_ns)
         rois_ns = (rois / down_scale).astype(np.int32)
 
-        try:
-            roi_clss, roi_segs = utils.label_rois(
-                rois_ns, lbl_ins_ns, lbl_cls_ns)
-        except ValueError:
-            return
+        roi_clss, roi_segs = utils.label_rois(rois, lbl_ins, lbl_cls)
 
         loss_cls = Variable(xp.array(0, dtype=np.float32), volatile='auto')
         loss_seg = Variable(xp.array(0, dtype=np.float32), volatile='auto')
@@ -382,6 +381,7 @@ class FCISVGG_SS(chainer.Chain):
 
             if roi_cls != 0:
                 roi_seg = roi_seg.astype(np.int32)
+                roi_seg = utils.resize_image(roi_seg, (roi_h, roi_w))
                 roi_seg = roi_seg[np.newaxis, :, :]
                 if xp == cupy:
                     roi_seg = cuda.to_gpu(roi_seg, device=x.data.device)
