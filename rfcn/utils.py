@@ -240,7 +240,12 @@ def get_region_proposals(img, kvals=(50, 200, 3), min_size=20,
     rects = []
     dlib.find_candidate_object_locations(
         img, rects, kvals, min_size, max_merging_iterations)
-    rois = [(r.left(), r.top(), r.right(), r.bottom()) for r in rects]
+    rois = []
+    for r in rects:
+        x1, y1, x2, y2 = r.left(), r.top(), r.right(), r.bottom()
+        roi_h, roi_w = y2 - y1, x2 - x1
+        if roi_h * roi_w > 0:
+            rois.append((x1, y1, x2, y2))
     rois = np.array(rois, dtype=np.int32)
     return rois
 
