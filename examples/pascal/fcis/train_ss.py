@@ -201,7 +201,7 @@ def main():
                     loss=results[0],
                     loss_cls=results[1],
                     loss_seg=results[2],
-                    acuracy_cls=results[3],
+                    accuracy_cls=results[3],
                     iu_lbl_cls=results[4],
                     iu_lbl_ins=results[5],
                     is_eval=True,
