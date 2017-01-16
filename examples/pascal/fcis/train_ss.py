@@ -121,9 +121,9 @@ def main():
     chainer.serializers.load_hdf5(vgg_path, vgg)
 
     C = len(dataset_train.class_names) - 1
-    model = rfcn.models.FCISVGG_SS(C=C, k=7)
+    model = rfcn.models.FCIS_SS(C=C, k=7)
     model.train = True
-    fcn.utils.copy_chainermodel(vgg, model.trunk)
+    fcn.utils.copy_chainermodel(vgg, model)
 
     cuda.get_device(gpu).use()
     if gpu >= 0:
