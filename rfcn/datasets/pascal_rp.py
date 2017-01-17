@@ -19,6 +19,8 @@ class PascalInstanceSegmentationRPDataset(PascalInstanceSegmentationDataset):
         img = self.datum_to_img(datum)
         datum = self.img_to_datum(img)
         rois = utils.get_region_proposals(img)
+        keep = utils.nms(rois, 0.9)
+        rois = rois[keep]
         roi_clss, _ = utils.label_rois(rois, lbl_ins, lbl_cls)
         samples = utils.get_positive_negative_samples(
             roi_clss != 0, negative_ratio=self.negative_ratio)
