@@ -53,6 +53,7 @@ def evaluate(model, iterator, device, viz_out):
     if not osp.exists(osp.dirname(viz_out)):
         os.makedirs(osp.dirname(viz_out))
     results = []
+    vizs = []
     for i, batch in enumerate(iterator):
         in_arrays = [np.asarray(x) for x in zip(*batch)]
         # prediction
@@ -68,10 +69,11 @@ def evaluate(model, iterator, device, viz_out):
             model.iu_lbl_cls,
             model.iu_lbl_ins,
         ))
-        if i == 0:
+        if i % 100 == 0:
             # visualization
             viz = visualize_prediction(model, iterator.dataset)
-            scipy.misc.imsave(viz_out, viz)
+            vizs.append(viz)
+    scipy.misc.imsave(viz_out, fcn.utils.get_tile_image(vizs))
     results = np.mean(results, axis=0)
     model.train = True
     return results
