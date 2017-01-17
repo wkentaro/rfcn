@@ -8,8 +8,9 @@ class PascalInstanceSegmentationRPDataset(PascalInstanceSegmentationDataset):
 
     """Pascal VOC2012 instance segmentation dataset with region proposals"""
 
-    def __init__(self, data_type, negative_ratio=1.0):
-        super(PascalInstanceSegmentationRPDataset, self).__init__(data_type)
+    def __init__(self, data_type, one_example=False, negative_ratio=1.0):
+        super(PascalInstanceSegmentationRPDataset,
+              self).__init__(data_type, one_example)
         self.negative_ratio = negative_ratio
 
     def get_example(self, i):

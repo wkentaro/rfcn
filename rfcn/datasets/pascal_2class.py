@@ -16,9 +16,9 @@ class PascalInstanceSegmentation2ClassDataset(
     ])
     mean_bgr = np.array([104.00698793, 116.66876762, 122.67891434])
 
-    def __init__(self, data_type, class_name='person', negative_ratio=1.0):
+    def __init__(self, data_type, one_example=False, class_name='person'):
         super(PascalInstanceSegmentation2ClassDataset,
-              self).__init__(data_type)
+              self).__init__(data_type, one_example)
         self.class_names[1] = class_name
         # update self.files for the target class
         dataset_dir = osp.dirname(osp.dirname(self.files[0]['img']))
