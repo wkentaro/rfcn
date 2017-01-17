@@ -168,6 +168,8 @@ class FCIS_SS(chainer.Chain):
         keep = []
         score_argsort = np.argsort(cls_scores.sum(axis=1))
         for i, roi_i in zip(score_argsort, rois[score_argsort]):
+            if roi_clss_pred[i] == 0:
+                continue
             roi_ns_i = rois_ns[i]
             x1, y1, x2, y2 = roi_ns_i
             roi_h, roi_w = y2 - y1, x2 - x1
@@ -188,11 +190,11 @@ class FCIS_SS(chainer.Chain):
 
             roi_mask_probs_cum = np.zeros((x.shape[2], x.shape[3], self.C+1),
                                           dtype=np.float64)
-            cls_score_cum = np.zeros((self.C+1,), dtype=np.float64)
+            # cls_score_cum = np.zeros((self.C+1,), dtype=np.float64)
 
             roi_i = rois[i]
             cls_score_i = cls_scores[i]
-            cls_score_cum += cls_score_i
+            # cls_score_cum += cls_score_i
             roi_mask_prob_i = roi_mask_probs[i]
             x1, y1, x2, y2 = roi_i
             roi_mask_prob_i = np.array([utils.resize_image(m, (y2-y1, x2-x1))
@@ -209,7 +211,7 @@ class FCIS_SS(chainer.Chain):
                 assert 0.5 < utils.get_bbox_overlap(roi_i, roi_j) < 0.7
                 accumulated.append(j)
                 cls_score_j = cls_scores[j]
-                cls_score_cum += cls_score_j
+                # cls_score_cum += cls_score_j
                 roi_mask_prob_j = roi_mask_probs[j]
                 x1, y1, x2, y2 = roi_j
                 roi_mask_prob_j = np.array([
@@ -220,7 +222,8 @@ class FCIS_SS(chainer.Chain):
                 roi_mask_prob_j *= cls_score_j
                 roi_mask_probs_cum[y1:y2, x1:x2] += roi_mask_prob_j
 
-            roi_cls = np.argmax(cls_score_cum)
+            # roi_cls = np.argmax(cls_score_cum)
+            roi_cls = roi_clss_pred[i]
 
             if roi_cls != 0:
                 # 1/down_scale
