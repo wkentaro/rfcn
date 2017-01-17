@@ -113,8 +113,8 @@ def main():
     dataset_val = rfcn.datasets.PascalInstanceSegmentationRPDataset('val')
 
     iter_train = chainer.iterators.SerialIterator(dataset_train, batch_size=1)
-    iter_val = chainer.iterators.SerialIterator(dataset_val, batch_size=1,
-                                                repeat=False, shuffle=False)
+    iter_val = chainer.iterators.SerialIterator(
+        dataset_val, batch_size=1, shuffle=False)
 
     # 2. model
 
