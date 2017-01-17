@@ -99,18 +99,34 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--out', required=True)
     parser.add_argument('--gpu', type=int, default=0, help='default: 0')
+    parser.add_argument('--one-example', action='store_true',
+                        help='Flag to use only 1 example')
+    parser.add_argument('--person-dataset', action='store_true',
+                        help='Flag to use person dataset')
     args = parser.parse_args()
 
     gpu = args.gpu
     out = args.out
+    one_example = args.one_example
+    person_dataset = args.person_dataset
 
     if not osp.exists(out):
         os.makedirs(out)
 
     # 1. dataset
 
-    dataset_train = rfcn.datasets.PascalInstanceSegmentationRPDataset('train')
-    dataset_val = rfcn.datasets.PascalInstanceSegmentationRPDataset('val')
+    if person_dataset:
+        from rfcn.datasets import PascalInstanceSegmentation2ClassRPDataset
+        dataset_train = PascalInstanceSegmentation2ClassRPDataset(
+            'train', one_example=one_example)
+        dataset_val = PascalInstanceSegmentation2ClassRPDataset(
+            'val', one_example=one_example)
+    else:
+        from rfcn.datasets import PascalInstanceSegmentationRPDataset
+        dataset_train = PascalInstanceSegmentationRPDataset(
+            'train', one_example=one_example)
+        dataset_val = PascalInstanceSegmentationRPDataset(
+            'val', one_example=one_example)
 
     iter_train = chainer.iterators.SerialIterator(dataset_train, batch_size=1)
     iter_val = chainer.iterators.SerialIterator(

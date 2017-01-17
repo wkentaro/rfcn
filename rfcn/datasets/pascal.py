@@ -36,8 +36,11 @@ class PascalInstanceSegmentationDataset(InstanceSegmentationDatasetBase):
     ])
     mean_bgr = np.array([104.00698793, 116.66876762, 122.67891434])
 
-    def __init__(self, data_type):
+    def __init__(self, data_type, one_example=False):
         assert data_type in ('train', 'val')
+        if one_example and data_type != 'train':
+            print('one_example is True, so we forcely use train dataset')
+            data_type = 'train'
         dataset_dir = chainer.dataset.get_dataset_directory(
             'pascal/VOCdevkit/VOC2012')
         imgsets_file = osp.join(
@@ -57,6 +60,8 @@ class PascalInstanceSegmentationDataset(InstanceSegmentationDatasetBase):
                 'seg_class': seg_class_file,
                 'seg_object': seg_object_file,
             })
+            if one_example:
+                break
 
     def __len__(self):
         return len(self.files)

@@ -8,9 +8,10 @@ class PascalInstanceSegmentation2ClassRPDataset(
         PascalInstanceSegmentation2ClassDataset
         ):
 
-    def __init__(self, data_type, negative_ratio=1.0):
+    def __init__(self, data_type, one_example=False,
+                 class_name='person', negative_ratio=1.0):
         super(PascalInstanceSegmentation2ClassRPDataset,
-              self).__init__(data_type)
+              self).__init__(data_type, one_example, class_name)
         self.negative_ratio = negative_ratio
 
     def get_example(self, i):
