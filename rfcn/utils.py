@@ -310,3 +310,82 @@ def nms(dets, thresh, scores=None):
         order = order[inds + 1]
 
     return keep
+
+
+def roi_scores_to_label(img_shape, rois, cls_scores, roi_mask_probs,
+                        down_scale, fcis_k, fcis_C):
+    height, width = img_shape[:2]
+
+    # suppress rois with threshold 0.7
+    keep = []
+    score_argsort = np.argsort(cls_scores.sum(axis=1))
+    for i, roi_i in zip(score_argsort, rois[score_argsort]):
+        if np.argmax(cls_scores[i]) == 0:
+            continue
+        roi_ns_i = (roi_i / down_scale).astype(int)
+        x1, y1, x2, y2 = roi_ns_i
+        roi_h, roi_w = y2 - y1, x2 - x1
+        if not (roi_h >= fcis_k and roi_w >= fcis_k):
+            continue
+        if all(get_bbox_overlap(roi_i, rois[j]) < 0.7 for j in keep):
+            keep.append(i)
+    keep = np.array(keep)
+
+    lbl_cls_pred = np.zeros(img_shape[:2], dtype=np.int32)
+    lbl_ins_pred = np.zeros(img_shape[:2], dtype=np.int32)
+    lbl_ins_pred.fill(-1)
+
+    accumulated = []
+    for i in keep:
+        if i in accumulated:
+            continue
+
+        roi_mask_probs_cum = np.zeros((height, width, fcis_C+1),
+                                      dtype=np.float64)
+        # cls_score_cum = np.zeros((self.C+1,), dtype=np.float64)
+
+        roi_i = rois[i]
+        cls_score_i = cls_scores[i]
+        # cls_score_cum += cls_score_i
+        roi_mask_prob_i = roi_mask_probs[i]
+        x1, y1, x2, y2 = roi_i
+        roi_mask_prob_i = np.array([resize_image(m, (y2-y1, x2-x1))
+                                    for m in roi_mask_prob_i])
+        roi_mask_prob_i = roi_mask_prob_i.transpose(1, 2, 0)
+        roi_mask_prob_i = 2 * roi_mask_prob_i - 1
+        roi_mask_prob_i *= cls_score_i
+        roi_mask_probs_cum[y1:y2, x1:x2] += roi_mask_prob_i
+
+        for j in keep:
+            roi_j = rois[j]
+            if not (0.5 < get_bbox_overlap(roi_i, roi_j) < 1):
+                continue
+            assert 0.5 < get_bbox_overlap(roi_i, roi_j) < 0.7
+            accumulated.append(j)
+            cls_score_j = cls_scores[j]
+            # cls_score_cum += cls_score_j
+            roi_mask_prob_j = roi_mask_probs[j]
+            x1, y1, x2, y2 = roi_j
+            roi_mask_prob_j = np.array([
+                resize_image(m, (y2-y1, x2-x1))
+                for m in roi_mask_prob_j])
+            roi_mask_prob_j = roi_mask_prob_j.transpose(1, 2, 0)
+            roi_mask_prob_j = 2 * roi_mask_prob_j - 1
+            roi_mask_prob_j *= cls_score_j
+            roi_mask_probs_cum[y1:y2, x1:x2] += roi_mask_prob_j
+
+        roi_cls = np.argmax(cls_scores[i])
+
+        if roi_cls != 0:
+            # 1/down_scale
+            roi_mask_prob = roi_mask_probs_cum[:, :, roi_cls]
+            roi_mask = roi_mask_prob > 0
+            # 1/1
+            roi_mask = resize_image(
+                roi_mask.astype(np.int32),
+                img_shape[:2]).astype(bool)
+            x1, y1, x2, y2 = roi_i
+            lbl_cls_pred[roi_mask] = roi_cls
+            lbl_ins_pred[roi_mask] = i
+
+    return lbl_ins_pred, lbl_cls_pred
