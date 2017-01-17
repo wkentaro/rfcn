@@ -83,16 +83,20 @@ def evaluate_once(model, dataset, device, viz_out):
     model.train = False
     if not osp.exists(osp.dirname(viz_out)):
         os.makedirs(osp.dirname(viz_out))
-    batch = [dataset.get_example(0)]
-    in_arrays = [np.asarray(x) for x in zip(*batch)]
-    if device >= 0:
-        in_arrays = [cuda.to_gpu(x, device=device) for x in in_arrays]
-    in_vars = [chainer.Variable(x, volatile=True) for x in in_arrays]
-    model(*in_vars)
-    # visualization
-    viz = visualize_prediction(model, dataset)
+    viz_imgs = []
+    n_example = 9 if len(dataset) >= 9 else 1
+    for i in xrange(n_example):
+        batch = [dataset.get_example(i)]
+        in_arrays = [np.asarray(x) for x in zip(*batch)]
+        if device >= 0:
+            in_arrays = [cuda.to_gpu(x, device=device) for x in in_arrays]
+        in_vars = [chainer.Variable(x, volatile=True) for x in in_arrays]
+        model(*in_vars)
+        # visualization
+        viz = visualize_prediction(model, dataset)
+        viz_imgs.append(viz)
+    scipy.misc.imsave(viz_out, fcn.utils.get_tile_image(viz_imgs))
     model.train = True
-    scipy.misc.imsave(viz_out, viz)
 
 
 def main():
