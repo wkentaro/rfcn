@@ -8,8 +8,8 @@ import fcn
 import numpy as np
 import sklearn.metrics
 
-# from rfcn.external.faster_rcnn.faster_rcnn.proposal_target_layer \
-#     import ProposalTargetLayer
+from rfcn.external.faster_rcnn.faster_rcnn.proposal_target_layer \
+    import ProposalTargetLayer
 from rfcn.external.faster_rcnn.models.rpn import RPN
 from rfcn import functions
 from rfcn import utils
@@ -47,7 +47,7 @@ class FCIS(chainer.Chain):
 
         # rpn:
         self.add_link('rpn', RPN(512, 512, n_anchors=9, feat_stride=16))
-        # self.proposal_target_layer = ProposalTargetLayer(C+1)
+        self.proposal_target_layer = ProposalTargetLayer(C+1)
 
         # translation-aware instance inside/outside score map:
         # out_channel is 2 * k^2 * (C + 1): 2 is inside/outside,
@@ -93,7 +93,7 @@ class FCIS(chainer.Chain):
             gt_boxes=gt_boxes,
             gpu=device,
         )
-        # rois = self.proposal_target_layer(rois, gt_boxes)[0]
+        rois = self.proposal_target_layer(rois, gt_boxes)[0]
         rois = rois[:, 1:]  # [x1, y1, x2, y2]
         loss_rpn = loss_rpn_cls + loss_rpn_reg
         return loss_rpn, rois
