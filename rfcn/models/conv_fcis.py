@@ -7,7 +7,7 @@ import chainer.links as L
 import numpy as np
 
 from rfcn import functions
-from rfcn.models.fcis_vgg16 import VGG16Trunk
+from rfcn.models.fcis_vgg import VGG16Trunk
 
 
 class CONV_FCIS(chainer.Chain):
