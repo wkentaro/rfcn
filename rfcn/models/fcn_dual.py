@@ -160,6 +160,43 @@ class FCNDual(chainer.Chain):
         score_ins = F.reshape(
             score_ins, (n_batch, self.n_proposals, 2, height, width))
 
+        # reconstruct
+
+        fg_mask = self.lbl_cls_pred != 0
+        lbl_ins_pred = np.zeros_like(self.lbl_ins)
+        lbl_ins_pred.fill(-1)
+
+        score_mask = F.max(score_ins, axis=2)
+        score_mask = F.sum(score_mask, axis=(2, 3))
+        score_mask_data = cuda.to_cpu(score_mask.data)[0]
+        proposal_ids = []
+        for i_proposal in np.argsort(score_mask_data)[::-1]:
+            score_fb = score_ins[:, i_proposal, :, :, :]
+
+            mask_proposal = F.argmax(score_fb, axis=1)
+            mask_proposal = cuda.to_cpu(mask_proposal.data)[0]
+            mask_proposal = mask_proposal.astype(bool)
+            assert mask_proposal.shape == (height, width)
+
+            max_overlap = 0
+            for j_proposal in proposal_ids:
+                mask_proposal_j = lbl_ins_pred == j_proposal
+                overlap = utils.get_mask_overlap(mask_proposal,
+                                                 mask_proposal_j)
+                max_overlap = max(max_overlap, overlap)
+
+            if max_overlap > 0.8:
+                continue
+
+            lbl_ins_pred[mask_proposal] = i_proposal
+            proposal_ids.append(i_proposal)
+
+            if (lbl_ins_pred[fg_mask] == -1).sum() == 0:
+                break
+
+        lbl_ins_pred[self.lbl_cls == 0] = -1
+        self.lbl_ins_pred = lbl_ins_pred
+
         # loss_ins
 
         loss_ins = np.array(0, dtype=np.float32)
@@ -170,49 +207,32 @@ class FCNDual(chainer.Chain):
         ins_ids = np.unique(self.lbl_ins[lbl_ins_mask])
         ins_ids = ins_ids[ins_ids != -1]
 
-        for ins_id in ins_ids:
-            mask_ins_i = self.lbl_ins == ins_id
-            mask_ins_i = mask_ins_i.astype(np.int32)
-            mask_ins_i = mask_ins_i[np.newaxis, :, :]
+        for j_proposal in proposal_ids:
+            score_fb = score_ins[:, j_proposal, :, :, :]
+
+            losses_ins_j = []
+
+            mask_all_bg = np.zeros((1, x.shape[2], x.shape[3]), dtype=np.int32)
             if device >= 0:
-                mask_ins_i = cuda.to_gpu(mask_ins_i, device=device)
-            mask_ins_i = chainer.Variable(mask_ins_i, volatile='auto')
+                mask_all_bg = cuda.to_gpu(mask_all_bg, device=device)
+            mask_all_bg = chainer.Variable(mask_all_bg, volatile='auto')
+            loss_all_bg = F.softmax_cross_entropy(score_fb, mask_all_bg)
+            losses_ins_j.append(loss_all_bg)
 
-            losses_ins_i = []
-            for i_proposal in xrange(self.n_proposals):
-                score_fb = score_ins[:, i_proposal, :, :, :]
-                loss_ins_i = F.softmax_cross_entropy(
-                    score_fb, mask_ins_i)
-                losses_ins_i.append(loss_ins_i)
+            for ins_id in ins_ids:
+                mask_ins_i = self.lbl_ins == ins_id
+                mask_ins_i = mask_ins_i.astype(np.int32)
+                mask_ins_i = mask_ins_i[np.newaxis, :, :]
+                if device >= 0:
+                    mask_ins_i = cuda.to_gpu(mask_ins_i, device=device)
+                mask_ins_i = chainer.Variable(mask_ins_i, volatile='auto')
 
-            losses_ins_i = F.vstack(losses_ins_i)
-            loss_ins_i = F.min(losses_ins_i)
-            loss_ins += loss_ins_i
+                loss_ins_j = F.softmax_cross_entropy(score_fb, mask_ins_i)
+                losses_ins_j.append(loss_ins_j)
 
-        # reconstruct
-
-        fg_mask = self.lbl_cls_pred != 0
-        lbl_ins_pred = np.zeros_like(self.lbl_ins)
-        lbl_ins_pred.fill(-1)
-
-        score_mask = F.max(score_ins, axis=2)
-        score_mask = F.sum(score_mask, axis=(2, 3))
-        score_mask_data = cuda.to_cpu(score_mask.data)[0]
-        for i_proposal in np.argsort(score_mask_data)[::-1]:
-            score_fb = score_ins[:, i_proposal, :, :, :]
-
-            mask_proposal = F.argmax(score_fb, axis=1)
-            mask_proposal = cuda.to_cpu(mask_proposal.data)[0]
-            mask_proposal = mask_proposal.astype(bool)
-            assert mask_proposal.shape == (height, width)
-
-            lbl_ins_pred[mask_proposal] = i_proposal
-
-            if (lbl_ins_pred[fg_mask] == -1).sum() == 0:
-                break
-
-        lbl_ins_pred[self.lbl_cls == 0] = -1
-        self.lbl_ins_pred = lbl_ins_pred
+            losses_ins_j = F.vstack(losses_ins_j)
+            loss_ins_j = F.min(losses_ins_j)
+            loss_ins += loss_ins_j
 
         # finalize ------------------------------------------------------------
 
