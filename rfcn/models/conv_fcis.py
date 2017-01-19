@@ -99,11 +99,14 @@ class CONV_FCIS(chainer.Chain):
 
         # get rois according to cls score
         # class is true and score > 0.7
-        rois, cls_scores = self._get_rois(cls_likelihood, t_label_cls_32s)
+        rois, cls_scores = self._get_rois(cls_likelihood)
+        # n_batch = 1
+        rois = rois[0]
+        cls_scores = cls_scores[0]
+
+        n_loss_seg = 0
         loss_seg = chainer.Variable(xp.array(0, dtype=np.float32),
                                     volatile='auto')
-        n_loss_seg = 0
-
         nrois = len(rois)
         roi_mask_probs = [None] * nrois
         for i, roi in enumerate(rois):
@@ -179,44 +182,52 @@ class CONV_FCIS(chainer.Chain):
 
             return loss
 
-    def _get_rois(self, cls_likelihood, t_label_cls):
+    def _get_rois(self, cls_likelihood):
         """Get rois whose class score is true and high.
 
-        :param np.array cls_likelihood: (n_batch, C+1, height/32, width/32)
+        Parameters
+        ----------
+        cls_likelihood: chainer.Variable (n_batch, C+1, height/32, width/32)
             Lable image output from network
-        :param np.array t_label_cls: (n_batch, height/32, width/32)
+        t_label_cls: np.ndarray (n_batch, height/32, width/32)
             Grand truth label image about object class.
+
+        Returns
+        -------
+        rois: list of taple
+            [[(cls_id, x1, y1, x2, y2),(),(),]]
+            causion::1st axis has batch size.
+        cls_scores: list of np.ndarray [(n_roi, C+1),]
         """
+        cls_likelihood = cuda.to_cpu(cls_likelihood.data)
+
         f = self.f
+        n_batch, _, height, width = cls_likelihood.shape
         rois = []
         cls_scores = []
-        thre = 0.7
-        _, height, width = t_label_cls.shape
 
-        cls_likelihood = cuda.to_cpu(cls_likelihood.data)[0]
-        t_label_cls = cuda.to_cpu(t_label_cls.data)[0]
+        for a_batch in cls_likelihood:
+            roi = []
+            cls_score = []
+            assert a_batch.shape[0] == self.C+1
 
-        for cls_id, a_cls in enumerate(cls_likelihood):
+            # high_prob_index: [[cls,y,x],...]
             # ignore background
-            if cls_id == 0:
-                continue
-            # get mask that is above threshold
-            # e.g.:[0, 0, 0, cls_id, cls_id, 0, 0, ....]
-            assert a_cls.shape == t_label_cls.shape
-            mask = (a_cls > thre) * cls_id
-            # mask 0 -> -2 (ignore)
-            mask[mask == 0] = -2
-            # judgement that masked inference class is true or not
-            # if true, return roi(cls_id, x1, y1, x2, y2)
-            true_class_inds = np.transpose(np.where(mask == t_label_cls))
-            for index in true_class_inds:
-                x1 = max(0, index[1] - f/2)
-                x2 = min(width, index[1] + f/2)
-                y1 = max(0, index[0] - f/2)
-                y2 = min(height, index[0] + f/2)
-                rois.append((cls_id, x1, y1, x2, y2))
-                cls_scores.append(cls_likelihood[:, index[0], index[1]])
+            high_prob_index = np.argsort(a_batch[1:], axis=None)[::-1]
+            high_prob_index = np.unravel_index(high_prob_index, a_batch[1:].shape)
+            high_prob_index = np.stack(high_prob_index, axis=-1)
 
-        cls_scores = np.array(cls_scores, np.float32)
+            for index in high_prob_index[:300]:
+                x1 = max(0, index[2] - f/2)
+                x2 = min(width, index[2] + f/2)
+                y1 = max(0, index[1] - f/2)
+                y2 = min(height, index[1] + f/2)
+                # +1 for slide cls index because of ignoring background
+                roi.append((index[0]+1, x1, y1, x2, y2))
+                cls_score.append(a_batch[:, index[1], index[2]])
+            rois.append(roi)
+            cls_scores.append(np.array(cls_score, np.float32))
+
+        assert cls_scores[0].shape == (len(rois[0]), self.C+1)
+
         return rois, cls_scores
-
