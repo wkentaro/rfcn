@@ -7,11 +7,12 @@ import chainer
 import chainer.functions as F
 import chainer.links as L
 import cupy
+import fcn
 import numpy as np
 
 from rfcn import functions
+from rfcn import utils
 from rfcn.models.fcis_vgg import VGG16Trunk
-
 
 class CONV_FCIS(chainer.Chain):
     def __init__(self, C, k=7):
@@ -59,6 +60,7 @@ class CONV_FCIS(chainer.Chain):
         t_label_inst_pil = PIL.Image.fromarray(t_label_inst_data[0])
         t_label_inst_32s = t_label_inst_pil.resize((width_32s, height_32s))
         t_label_inst_32s = np.asarray(t_label_inst_32s)
+        lbl_ins = t_label_inst_32s
         t_label_inst_32s = t_label_inst_32s[np.newaxis, ...]
         if xp == cupy:
             t_label_inst_32s = cuda.to_gpu(t_label_inst_32s, device=x.data.device)
@@ -68,6 +70,7 @@ class CONV_FCIS(chainer.Chain):
         t_label_cls_pil = PIL.Image.fromarray(t_label_cls_data[0])
         t_label_cls_32s = t_label_cls_pil.resize((width_32s, height_32s))
         t_label_cls_32s = np.asarray(t_label_cls_32s)
+        lbl_cls = t_label_cls_32s
         t_label_cls_32s = t_label_cls_32s[np.newaxis, ...]
         if xp == cupy:
             t_label_cls_32s= cuda.to_gpu(t_label_cls_32s, device=x.data.device)
@@ -96,10 +99,14 @@ class CONV_FCIS(chainer.Chain):
 
         # get rois according to cls score
         # class is true and score > 0.7
-        rois = self._get_rois(cls_likelihood, t_label_cls_32s)
+        rois, cls_scores = self._get_rois(cls_likelihood, t_label_cls_32s)
         loss_seg = chainer.Variable(xp.array(0, dtype=np.float32),
                                     volatile='auto')
-        for roi in rois:
+        n_loss_seg = 0
+
+        nrois = len(rois)
+        roi_mask_probs = [None] * nrois
+        for i, roi in enumerate(rois):
             cls_id, x1, y1, x2, y2 = roi
             roi_h = y2 - y1
             roi_w = x2 - x1
@@ -119,6 +126,10 @@ class CONV_FCIS(chainer.Chain):
                 h_score_assm, (1, self.C+1, 2, roi_h, roi_w))
             # inside/outside likelihood: (n_batch=1, 2, roi_h, roi_w)
             h_score_inout = h_score_assm[:, cls_id]
+            assert h_score_inout.shape == (1, 2, roi_h, roi_w)
+
+            roi_mask_prob = F.softmax(h_score_assm[0])[:, 1, :, :]
+            roi_mask_probs[i] = cuda.to_cpu(roi_mask_prob.data)
 
             # gt_roi_seg: (n_batch, roi_h, roi_w)
             # get centor of roi's instance number
@@ -132,16 +143,41 @@ class CONV_FCIS(chainer.Chain):
 
             a_loss_seg = F.softmax_cross_entropy(h_score_inout, gt_roi_seg)
             loss_seg += a_loss_seg
+            n_loss_seg += 1
 
+        if n_loss_seg != 0:
+            loss_seg /= n_loss_seg
         loss = loss_cls + loss_seg
-        
-        chainer.report({
-            'loss': loss,
-            'loss_cls': loss_cls,
-            'loss_seg': loss_seg,
-        }, self)
 
-        return loss
+        if nrois == 0:
+            chainer.report({
+                'loss': loss,
+                'loss_cls': loss_cls,
+                'loss_seg': loss_seg,
+            }, self)
+            return loss
+        else:
+            lbl_ins_pred, lbl_cls_pred = utils.roi_scores_to_label(
+                    (height_32s, width_32s), np.array(rois)[:, 1:], cls_scores, roi_mask_probs,
+                    1, self.ksize, self.C)
+
+            self.lbl_cls_pred = lbl_cls_pred
+            self.lbl_ins_pred = lbl_ins_pred
+
+            self.iu_lbl_cls = fcn.utils.label_accuracy_score(
+                lbl_cls, lbl_cls_pred, C+1)[2]
+            self.iu_lbl_ins = utils.instance_label_accuracy_score(
+                lbl_ins, lbl_ins_pred)
+
+            chainer.report({
+                'loss': loss,
+                'loss_cls': loss_cls,
+                'loss_seg': loss_seg,
+                'cls_iu': self.iu_lbl_cls,
+                'ins_iu': self.iu_lbl_ins,
+            }, self)
+
+            return loss
 
     def _get_rois(self, cls_likelihood, t_label_cls):
         """Get rois whose class score is true and high.
@@ -153,6 +189,7 @@ class CONV_FCIS(chainer.Chain):
         """
         f = self.f
         rois = []
+        cls_scores = []
         thre = 0.7
         _, height, width = t_label_cls.shape
 
@@ -178,5 +215,8 @@ class CONV_FCIS(chainer.Chain):
                 y1 = max(0, index[0] - f/2)
                 y2 = min(height, index[0] + f/2)
                 rois.append((cls_id, x1, y1, x2, y2))
+                cls_scores.append(cls_likelihood[:, index[0], index[1]])
 
-        return rois
+        cls_scores = np.array(cls_scores, np.float32)
+        return rois, cls_scores
+

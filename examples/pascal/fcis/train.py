@@ -140,7 +140,10 @@ def get_trainer(
     trainer.extend(extensions.PrintReport([
         'epoch', 'iteration',
         'main/loss', 'validation/main/loss',
-        'main/accuracy', 'validation/main/accuracy',
+        'main/loss_cls', 'main/loss_seg',
+        'main/cls_iu', 'main/ins_iu', 
+        'validation/loss_cls', 'validation/loss_seg',
+        'validation/cls_iu', 'validation/ins_iu', 
         'elapsed_time',
     ]))
     trainer.extend(extensions.ProgressBar(update_interval=1))
