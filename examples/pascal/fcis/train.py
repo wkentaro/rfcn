@@ -141,9 +141,9 @@ def get_trainer(
         'epoch', 'iteration',
         'main/loss', 'validation/main/loss',
         'main/loss_cls', 'main/loss_seg',
-        'main/cls_iu', 'main/ins_iu', 
+        'main/cls_iu', 'main/ins_iu',
         'validation/loss_cls', 'validation/loss_seg',
-        'validation/cls_iu', 'validation/ins_iu', 
+        'validation/cls_iu', 'validation/ins_iu',
         'elapsed_time',
     ]))
     trainer.extend(extensions.ProgressBar(update_interval=1))

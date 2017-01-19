@@ -1,18 +1,19 @@
 # !/usr/bin/python
 import PIL
 
-from chainer import cuda
-from chainer import Variable
 import chainer
+from chainer import cuda
 import chainer.functions as F
 import chainer.links as L
+from chainer import Variable
 import cupy
 import fcn
 import numpy as np
 
 from rfcn import functions
-from rfcn import utils
 from rfcn.models.fcis_vgg import VGG16Trunk
+from rfcn import utils
+
 
 class CONV_FCIS(chainer.Chain):
     def __init__(self, C, k=5):
@@ -63,7 +64,8 @@ class CONV_FCIS(chainer.Chain):
         lbl_ins = t_label_inst_32s
         t_label_inst_32s = t_label_inst_32s[np.newaxis, ...]
         if xp == cupy:
-            t_label_inst_32s = cuda.to_gpu(t_label_inst_32s, device=x.data.device)
+            t_label_inst_32s = cuda.to_gpu(
+                t_label_inst_32s, device=x.data.device)
         t_label_inst_32s = Variable(t_label_inst_32s, volatile='auto')
 
         t_label_cls_data = chainer.cuda.to_cpu(t_label_cls.data)
@@ -73,8 +75,9 @@ class CONV_FCIS(chainer.Chain):
         lbl_cls = t_label_cls_32s
         t_label_cls_32s = t_label_cls_32s[np.newaxis, ...]
         if xp == cupy:
-            t_label_cls_32s= cuda.to_gpu(t_label_cls_32s, device=x.data.device)
-        t_label_cls_32s= Variable(t_label_cls_32s, volatile='auto')
+            t_label_cls_32s = cuda.to_gpu(
+                t_label_cls_32s, device=x.data.device)
+        t_label_cls_32s = Variable(t_label_cls_32s, volatile='auto')
 
         # get 2*(k**2) score map for 'ic'th category
         # and apply conv func to them
@@ -87,7 +90,7 @@ class CONV_FCIS(chainer.Chain):
             # applying same convolution filter to the maps of each category
             a_cls_score = F.get_item(score, np.s_[:, iks+ic*2])
             h = F.relu(self.conv_1(a_cls_score))
-            a_cls_likelihood = self.conv_2(h)
+            a_cls_likelihood = F.relu(self.conv_2(h))
             cls_likelihood.append(a_cls_likelihood)
 
         # (n_batch, C+1, height/32, width/32)
@@ -121,7 +124,7 @@ class CONV_FCIS(chainer.Chain):
             h_score_roi = F.reshape(
                 h_score_roi, (1, 2 * k**2 * (C+1), roi_h, roi_w))
             # assembling: (n_batch=1, 2*(C+1), roi_h, roi_w)
-            # 2nd axis is ordered like 1st pos of each cat, 2nd pos of each cat, 3rd
+            # 2nd axis is ordered like 1st pos of each cat, 2nd pos of each cat
             h_score_assm = functions.assemble_2d(h_score_roi, k)
             # score map for inside/outside: (n_batch=1, C+1, 2, roi_h, roi_w)
             # ([0,1,2,3, ...] -> [[0,1],[2,3],...]
@@ -161,7 +164,10 @@ class CONV_FCIS(chainer.Chain):
             return loss
         else:
             lbl_ins_pred, lbl_cls_pred = utils.roi_scores_to_label(
-                    (height_32s, width_32s), np.array(rois)[:, 1:], cls_scores, roi_mask_probs,
+                    (height_32s, width_32s),
+                    np.array(rois)[:, 1:],
+                    cls_scores,
+                    roi_mask_probs,
                     1, self.ksize, self.C)
 
             self.lbl_cls_pred = lbl_cls_pred
@@ -214,7 +220,8 @@ class CONV_FCIS(chainer.Chain):
             # high_prob_index: [[cls,y,x],...]
             # ignore background
             high_prob_index = np.argsort(a_batch[1:], axis=None)[::-1]
-            high_prob_index = np.unravel_index(high_prob_index, a_batch[1:].shape)
+            high_prob_index = np.unravel_index(
+                    high_prob_index, a_batch[1:].shape)
             high_prob_index = np.stack(high_prob_index, axis=-1)
 
             for index in high_prob_index[:300]:
