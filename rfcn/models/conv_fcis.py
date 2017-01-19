@@ -1,9 +1,12 @@
 # !/usr/bin/python
 import PIL
 
+from chainer import cuda
+from chainer import Variable
 import chainer
 import chainer.functions as F
 import chainer.links as L
+import cupy
 import numpy as np
 
 from rfcn import functions
@@ -12,16 +15,18 @@ from rfcn.models.fcis_vgg import VGG16Trunk
 
 class CONV_FCIS(chainer.Chain):
     def __init__(self, C, k=7):
+        f = 11
         super(CONV_FCIS, self).__init__(
             trunk=VGG16Trunk(),
             conv_score=L.Convolution2D(512, 2 * k**2 * (C + 1), ksize=1),
 
-            conv_1=L.Convolution2D(2*(k**2), k, 11, pad=5),
-            conv_2=L.Convolution2D(k, 1, 11, pad=5),
+            conv_1=L.Convolution2D(2*(k**2), k, f, pad=5),
+            conv_2=L.Convolution2D(k, 1, f, pad=5),
 
         )
 
-        self.k = k
+        self.f = f
+        self.ksize = k
         self.C = C
 
     def __call__(self, x, t_label_cls, t_label_inst):
@@ -36,14 +41,15 @@ class CONV_FCIS(chainer.Chain):
         t_label_inst: (n_batch, height, width)
             Label image about object instances.
         """
-        xp = chainer.cuda.get_array_module(x)
+        xp = chainer.cuda.get_array_module(x.data)
         C = self.C
         k = self.ksize
 
         # TODO(mukuact): need to load pre-trained weight
-        h_conv5 = self.trunk(x)
+        self.trunk(x)
+        h_conv4 = self.trunk.h_conv4  # 1/16
         # (b_batch, 2 * k^2 * (C + 1), height/32, width/32)
-        score = self.conv_score(h_conv5)
+        score = self.conv_score(h_conv4)
 
         sc_shape = score.data.shape
 
@@ -52,28 +58,38 @@ class CONV_FCIS(chainer.Chain):
         t_label_inst_data = chainer.cuda.to_cpu(t_label_inst.data)
         t_label_inst_pil = PIL.Image.fromarray(t_label_inst_data[0])
         t_label_inst_32s = t_label_inst_pil.resize((width_32s, height_32s))
-        t_label_inst_32s = np.array(t_label_inst_32s)
+        t_label_inst_32s = np.asarray(t_label_inst_32s)
+        t_label_inst_32s = t_label_inst_32s[np.newaxis, ...]
+        if xp == cupy:
+            t_label_inst_32s = cuda.to_gpu(t_label_inst_32s, device=x.data.device)
+        t_label_cls_32s = Variable(t_label_inst_32s, volatile='auto')
 
         t_label_cls_data = chainer.cuda.to_cpu(t_label_cls.data)
         t_label_cls_pil = PIL.Image.fromarray(t_label_cls_data[0])
         t_label_cls_32s = t_label_cls_pil.resize((width_32s, height_32s))
-        t_label_cls_32s = np.array(t_label_cls_32s)
+        t_label_cls_32s = np.asarray(t_label_cls_32s)
+        t_label_cls_32s = t_label_cls_32s[np.newaxis, ...]
+        if xp == cupy:
+            t_label_cls_32s= cuda.to_gpu(t_label_cls_32s, device=x.data.device)
+        t_label_cls_32s= Variable(t_label_cls_32s, volatile='auto')
 
-        # get k**2 score map for 'ic'th category
+        # get 2*(k**2) score map for 'ic'th category
         # and apply conv func to them
-        # iks:[0, C+1+1, 2(C+1)+1, 3(C+1)+1, ...]
-        iks = np.arange(0, 2*(C+1)*(k**2), (C+1))
+        # iks:[0, 1, 2(C+1), 2(C+1)+1, 2*2(C+1), 2*2(C+1)+1, 2*3(C+1), ...]
+        iks_fore = np.arange(0, 2*(C+1)*(k**2), 2*(C+1))
+        iks_back = np.arange(0, 2*(C+1)*(k**2), 2*(C+1)) + 1
+        iks = np.ravel(np.dstack((iks_fore, iks_back)))
         cls_likelihood = []
         for ic in xrange(C+1):
             # applying same convolution filter to the maps of each category
-            a_cls_score = F.get_item(score, np.s_[:, iks+ic])
+            a_cls_score = F.get_item(score, np.s_[:, iks+ic*2])
             h = F.relu(self.conv_1(a_cls_score))
             a_cls_likelihood = self.conv_2(h)
             cls_likelihood.append(a_cls_likelihood)
 
         # (n_batch, C+1, height/32, width/32)
         cls_likelihood = F.concat(cls_likelihood, axis=1)
-
+        
         # roi's grand truth is assumed as center of roi
         # grand truth is seemed to have a same resolution as the score map
         loss_cls = F.softmax_cross_entropy(cls_likelihood, t_label_cls_32s)
@@ -93,6 +109,7 @@ class CONV_FCIS(chainer.Chain):
             h_score_roi = F.reshape(
                 h_score_roi, (1, 2 * self.k**2 * (self.C+1), roi_h, roi_w))
             # assembling: (n_batch=1, 2*(C+1), roi_h, roi_w)
+            # 2nd axis is ordered like 1st pos of each cat, 2nd pos of each cat, 3rd
             h_score_assm = functions.assemble_2d(h_score_roi, self.k)
             # score map for inside/outside: (n_batch=1, C+1, 2, roi_h, roi_w)
             # ([0,1,2,3, ...] -> [[0,1],[2,3],...]
@@ -113,6 +130,13 @@ class CONV_FCIS(chainer.Chain):
             loss_seg += a_loss_seg
 
         loss = loss_cls + loss_seg
+        
+        chainer.report({
+            'loss': loss,
+            'loss_cls': loss_cls,
+            'loss_seg': loss_seg,
+        }, self)
+
         return loss
 
     def _get_rois(self, cls_likelihood, t_label_cls):
@@ -123,6 +147,7 @@ class CONV_FCIS(chainer.Chain):
         :param np.array t_label_cls: (n_batch, height/32, width/32)
             Grand truth label image about object class.
         """
+        f = self.f
         rois = []
         thre = 0.7
         _, height, width = t_label_cls.shape
@@ -140,10 +165,10 @@ class CONV_FCIS(chainer.Chain):
             # if true, return roi(cls_id, x1, y1, x2, y2)
             true_class_inds = np.transpose(np.where(mask == t_label_cls))
             for index in true_class_inds:
-                x1 = max(0, index[1] - 11/2)
-                x2 = min(width, index[1] + 11/2)
-                y1 = max(0, index[0] - 11/2)
-                y2 = min(height, index[0] + 11/2)
+                x1 = max(0, index[1] - f/2)
+                x2 = min(width, index[1] + f/2)
+                y1 = max(0, index[0] - f/2)
+                y2 = min(height, index[0] + f/2)
                 rois.append((cls_id, x1, y1, x2, y2))
 
         return rois
