@@ -159,12 +159,8 @@ class FCNDual(chainer.Chain):
         # 2 is for fore/background
         score_ins = F.reshape(
             score_ins, (n_batch, self.n_proposals, 2, height, width))
-        score_mask = F.max(score_ins, axis=2)
-        score_mask = F.sum(score_mask, axis=(2, 3))
 
-        fg_mask = self.lbl_cls_pred != 0
-        lbl_ins_pred = np.zeros_like(self.lbl_ins)
-        lbl_ins_pred.fill(-1)
+        # loss_ins
 
         loss_ins = np.array(0, dtype=np.float32)
         loss_ins = cuda.to_gpu(loss_ins, device=device)
@@ -173,62 +169,8 @@ class FCNDual(chainer.Chain):
         lbl_ins_mask = np.bitwise_and(self.lbl_ins != -1, self.lbl_cls != 0)
         ins_ids = np.unique(self.lbl_ins[lbl_ins_mask])
         ins_ids = ins_ids[ins_ids != -1]
-        ins_ids_found = []
-        score_mask_data = cuda.to_cpu(score_mask.data)[0]
-        for i_proposal in np.argsort(score_mask_data)[::-1]:
-            score_fb = score_ins[:, i_proposal, :, :, :]
-
-            losses_proposal_i = []
-
-            # if all background
-
-            mask_all_bg = np.zeros((1, height, width), dtype=np.int32)
-            if device >= 0:
-                mask_all_bg = cuda.to_gpu(mask_all_bg, device=device)
-            mask_all_bg = chainer.Variable(mask_all_bg, volatile='auto')
-
-            loss_proposal_bg = F.softmax_cross_entropy(score_fb, mask_all_bg)
-            losses_proposal_i.append(loss_proposal_bg)
-
-            # if an instance
-
-            for ins_id in ins_ids:
-                mask_ins_i = self.lbl_ins == ins_id
-                mask_ins_i = mask_ins_i.astype(np.int32)
-                mask_ins_i = mask_ins_i[np.newaxis, :, :]
-                if device >= 0:
-                    mask_ins_i = cuda.to_gpu(mask_ins_i, device=device)
-                mask_ins_i = chainer.Variable(mask_ins_i, volatile='auto')
-
-                loss_proposal_i = F.softmax_cross_entropy(score_fb, mask_ins_i)
-                losses_proposal_i.append(loss_proposal_i)
-
-            losses_proposal_i = F.vstack(losses_proposal_i)
-            loss_ins += F.min(losses_proposal_i)
-
-            ins_id_index = int(F.argmin(losses_proposal_i).data) - 1
-            if ins_id_index >= 0:
-                ins_ids_found.append(ins_ids[ins_id_index])
-
-            ###############
-            # reconstruct #
-            ###############
-            mask_proposal = F.argmax(score_fb, axis=1)
-            mask_proposal = cuda.to_cpu(mask_proposal.data)[0]
-            mask_proposal = mask_proposal.astype(bool)
-            assert mask_proposal.shape == (height, width)
-
-            lbl_ins_pred[mask_proposal] = i_proposal
-
-            if (lbl_ins_pred[fg_mask] == -1).sum() == 0:
-                break
-
-        lbl_ins_pred[self.lbl_cls == 0] = -1
-        self.lbl_ins_pred = lbl_ins_pred
 
         for ins_id in ins_ids:
-            if ins_id in ins_ids_found:
-                continue
             mask_ins_i = self.lbl_ins == ins_id
             mask_ins_i = mask_ins_i.astype(np.int32)
             mask_ins_i = mask_ins_i[np.newaxis, :, :]
@@ -246,6 +188,33 @@ class FCNDual(chainer.Chain):
             losses_ins_i = F.vstack(losses_ins_i)
             loss_ins_i = F.min(losses_ins_i)
             loss_ins += loss_ins_i
+
+        # reconstruct
+
+        fg_mask = self.lbl_cls_pred != 0
+        lbl_ins_pred = np.zeros_like(self.lbl_ins)
+        lbl_ins_pred.fill(-1)
+
+        score_mask = F.max(score_ins, axis=2)
+        score_mask = F.sum(score_mask, axis=(2, 3))
+        score_mask_data = cuda.to_cpu(score_mask.data)[0]
+        for i_proposal in np.argsort(score_mask_data)[::-1]:
+            score_fb = score_ins[:, i_proposal, :, :, :]
+
+            mask_proposal = F.argmax(score_fb, axis=1)
+            mask_proposal = cuda.to_cpu(mask_proposal.data)[0]
+            mask_proposal = mask_proposal.astype(bool)
+            assert mask_proposal.shape == (height, width)
+
+            lbl_ins_pred[mask_proposal] = i_proposal
+
+            if (lbl_ins_pred[fg_mask] == -1).sum() == 0:
+                break
+
+        lbl_ins_pred[self.lbl_cls == 0] = -1
+        self.lbl_ins_pred = lbl_ins_pred
+
+        # finalize ------------------------------------------------------------
 
         loss = loss_cls + loss_ins
 
