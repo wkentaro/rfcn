@@ -15,14 +15,14 @@ from rfcn import utils
 from rfcn.models.fcis_vgg import VGG16Trunk
 
 class CONV_FCIS(chainer.Chain):
-    def __init__(self, C, k=7):
-        f = 11
+    def __init__(self, C, k=5):
+        f = 15
         super(CONV_FCIS, self).__init__(
             trunk=VGG16Trunk(),
             conv_score=L.Convolution2D(512, 2 * k**2 * (C + 1), ksize=1),
 
-            conv_1=L.Convolution2D(2*(k**2), k, f, pad=5),
-            conv_2=L.Convolution2D(k, 1, f, pad=5),
+            conv_1=L.Convolution2D(2*(k**2), k, f, pad=(f-1)/2),
+            conv_2=L.Convolution2D(k, 1, f, pad=(f-1)/2),
 
         )
 
