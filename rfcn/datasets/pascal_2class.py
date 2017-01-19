@@ -1,5 +1,5 @@
 import os.path as osp
-import xml.etree
+import xml.etree.ElementTree
 
 import numpy as np
 
