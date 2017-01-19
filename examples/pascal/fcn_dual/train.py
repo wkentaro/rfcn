@@ -5,7 +5,6 @@ from __future__ import print_function
 import argparse
 import os
 import os.path as osp
-import sys
 
 import chainer
 from chainer import cuda
@@ -20,7 +19,6 @@ def visualize_prediction(model, dataset):
     datum = model.datum
     img = dataset.datum_to_img(datum).copy()
     class_names = dataset.class_names
-    n_class = len(class_names)
     # visualize true
     lbl_ins = model.lbl_ins
     lbl_cls = model.lbl_cls
