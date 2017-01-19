@@ -62,7 +62,7 @@ class CONV_FCIS(chainer.Chain):
         t_label_inst_32s = t_label_inst_32s[np.newaxis, ...]
         if xp == cupy:
             t_label_inst_32s = cuda.to_gpu(t_label_inst_32s, device=x.data.device)
-        t_label_cls_32s = Variable(t_label_inst_32s, volatile='auto')
+        t_label_inst_32s = Variable(t_label_inst_32s, volatile='auto')
 
         t_label_cls_data = chainer.cuda.to_cpu(t_label_cls.data)
         t_label_cls_pil = PIL.Image.fromarray(t_label_cls_data[0])
@@ -89,7 +89,7 @@ class CONV_FCIS(chainer.Chain):
 
         # (n_batch, C+1, height/32, width/32)
         cls_likelihood = F.concat(cls_likelihood, axis=1)
-        
+        assert cls_likelihood.shape == (1, C+1, height_32s, width_32s)
         # roi's grand truth is assumed as center of roi
         # grand truth is seemed to have a same resolution as the score map
         loss_cls = F.softmax_cross_entropy(cls_likelihood, t_label_cls_32s)
@@ -102,15 +102,17 @@ class CONV_FCIS(chainer.Chain):
         for roi in rois:
             cls_id, x1, y1, x2, y2 = roi
             roi_h = y2 - y1
-            roi_w = x2 - x2
+            roi_w = x2 - x1
+            if roi_h == 0 or roi_w == 0:
+                continue
 
             # score map in ROI: (n_batch=1, 2 * k^2 * (C + 1), roi_h, roi_w)
             h_score_roi = score[0, :, y1:y2, x1:x2]
             h_score_roi = F.reshape(
-                h_score_roi, (1, 2 * self.k**2 * (self.C+1), roi_h, roi_w))
+                h_score_roi, (1, 2 * k**2 * (C+1), roi_h, roi_w))
             # assembling: (n_batch=1, 2*(C+1), roi_h, roi_w)
             # 2nd axis is ordered like 1st pos of each cat, 2nd pos of each cat, 3rd
-            h_score_assm = functions.assemble_2d(h_score_roi, self.k)
+            h_score_assm = functions.assemble_2d(h_score_roi, k)
             # score map for inside/outside: (n_batch=1, C+1, 2, roi_h, roi_w)
             # ([0,1,2,3, ...] -> [[0,1],[2,3],...]
             h_score_assm = F.reshape(
@@ -121,10 +123,12 @@ class CONV_FCIS(chainer.Chain):
             # gt_roi_seg: (n_batch, roi_h, roi_w)
             # get centor of roi's instance number
             # remain only instance number gotten
-            gt_roi_seg = t_label_inst_32s[y1:y2, x1:y2]
-            roi_center = (roi_h/2,  roi_w/2)
+            gt_roi_seg = t_label_inst_32s[:, y1:y2, x1:x2]
+            gt_roi_seg = gt_roi_seg.data
+            assert gt_roi_seg.shape == (1, roi_h, roi_w)
+            roi_center = (0, roi_h/2,  roi_w/2)
             gt_seg = gt_roi_seg[roi_center]
-            gt_roi_seg = np.asarray(gt_roi_seg == gt_seg, dtype=np.int32)
+            gt_roi_seg = xp.asarray(gt_roi_seg == gt_seg, dtype=np.int32)
 
             a_loss_seg = F.softmax_cross_entropy(h_score_inout, gt_roi_seg)
             loss_seg += a_loss_seg
@@ -152,12 +156,16 @@ class CONV_FCIS(chainer.Chain):
         thre = 0.7
         _, height, width = t_label_cls.shape
 
+        cls_likelihood = cuda.to_cpu(cls_likelihood.data)[0]
+        t_label_cls = cuda.to_cpu(t_label_cls.data)[0]
+
         for cls_id, a_cls in enumerate(cls_likelihood):
             # ignore background
             if cls_id == 0:
                 continue
             # get mask that is above threshold
             # e.g.:[0, 0, 0, cls_id, cls_id, 0, 0, ....]
+            assert a_cls.shape == t_label_cls.shape
             mask = (a_cls > thre) * cls_id
             # mask 0 -> -2 (ignore)
             mask[mask == 0] = -2
