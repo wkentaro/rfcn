@@ -20,11 +20,18 @@ Installation
 
   cd ~/rfcn_ws/src
 
-  git clone https://github.com/pdollar/coco.git
-  (cd coco/PythonAPI && python setup.py install)
+  # Currently we don't use coco..
+  # git clone https://github.com/pdollar/coco.git
+  # (cd coco/PythonAPI && python setup.py install)
 
   git clone https://github.com/wkentaro/rfcn.git
-  (cd rfcn && python setup.py develop)
+  cd rfcn
+  pip install -r requirements.txt
+  python setup.py develop
+  cd ..  # ~/rfcn_ws/src
+
+  cd ..  # ~/rfcn_ws
+  cp /usr/lib/python2.7/dist-packages/cv2.so venv/lib/python2.7/site-packages/cv2.so
 
 
 Testing

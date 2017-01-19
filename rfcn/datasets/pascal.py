@@ -6,6 +6,7 @@ import PIL.Image
 import scipy
 
 from rfcn.datasets.instance_segmentation import InstanceSegmentationDatasetBase
+from rfcn import utils
 
 
 class PascalInstanceSegmentationDataset(InstanceSegmentationDatasetBase):
@@ -35,8 +36,11 @@ class PascalInstanceSegmentationDataset(InstanceSegmentationDatasetBase):
     ])
     mean_bgr = np.array([104.00698793, 116.66876762, 122.67891434])
 
-    def __init__(self, data_type):
+    def __init__(self, data_type, one_example=False):
         assert data_type in ('train', 'val')
+        if one_example and data_type != 'train':
+            print('one_example is True, so we forcely use train dataset')
+            data_type = 'train'
         dataset_dir = chainer.dataset.get_dataset_directory(
             'pascal/VOCdevkit/VOC2012')
         imgsets_file = osp.join(
@@ -56,6 +60,8 @@ class PascalInstanceSegmentationDataset(InstanceSegmentationDatasetBase):
                 'seg_class': seg_class_file,
                 'seg_object': seg_object_file,
             })
+            if one_example:
+                break
 
     def __len__(self):
         return len(self.files)
@@ -81,17 +87,22 @@ class PascalInstanceSegmentationDataset(InstanceSegmentationDatasetBase):
         # load image
         img_file = data_file['img']
         img = scipy.misc.imread(img_file, mode='RGB')
+        scale = np.sqrt(150000. / (img.shape[0] * img.shape[1]))
+        shape = int(scale * img.shape[0]), int(scale * img.shape[1])
+        img = utils.resize_image(img, shape)
         datum = self.img_to_datum(img)
         # load class segmentaion gt
         seg_class_file = data_file['seg_class']
         label_class = PIL.Image.open(seg_class_file)
         label_class = np.array(label_class, dtype=np.int32)
         label_class[label_class == 255] = -1
+        label_class = utils.resize_image(label_class, shape)
         # load instance segmentation gt
         seg_object_file = data_file['seg_object']
         label_instance = PIL.Image.open(seg_object_file)
         label_instance = np.array(label_instance, dtype=np.int32)
         label_instance[label_instance == 255] = -1
+        label_instance = utils.resize_image(label_instance, shape)
         return datum, label_class, label_instance
 
 
