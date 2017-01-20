@@ -87,7 +87,7 @@ def main():
         rois = np.array(rois, dtype=np.int64)
         roi_clss = np.array(roi_clss, dtype=np.int32)
 
-        roi_sizes = (rois[:, 1] - rois[:, 0]) * (rois[:, 3] - rois[:, 2])
+        roi_sizes = (rois[:, 2] - rois[:, 0]) * (rois[:, 3] - rois[:, 1])
         keep = np.bitwise_and(roi_sizes > 0, roi_clss != 0)
         rois = rois[keep]
         roi_clss = roi_clss[keep]
