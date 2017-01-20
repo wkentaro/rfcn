@@ -1,6 +1,4 @@
 # !/usr/bin/python
-import PIL
-
 import chainer
 from chainer import cuda
 import chainer.functions as F
@@ -43,43 +41,33 @@ class CONV_FCIS(chainer.Chain):
         t_label_inst: (n_batch, height, width)
             Label image about object instances.
         """
-        self.x = x
-
         xp = chainer.cuda.get_array_module(x.data)
         C = self.C
         k = self.ksize
 
-        # TODO(mukuact): need to load pre-trained weight
         self.trunk(x)
         h_conv4 = self.trunk.h_conv4  # 1/16
+
         # (b_batch, 2 * k^2 * (C + 1), height/32, width/32)
         score = self.conv_score(h_conv4)
 
-        sc_shape = score.data.shape
-
-        _, _, height_32s, width_32s = sc_shape
+        _, _, height_32s, width_32s = score.data.shape
         # grand truth
-        t_label_inst_data = chainer.cuda.to_cpu(t_label_inst.data)
-        t_label_inst_pil = PIL.Image.fromarray(t_label_inst_data[0])
-        t_label_inst_32s = t_label_inst_pil.resize((width_32s, height_32s))
-        t_label_inst_32s = np.asarray(t_label_inst_32s)
-        lbl_ins = t_label_inst_32s
+        lbl_ins = cuda.to_cpu(t_label_inst.data[0])
+        t_label_inst_32s = utils.resize_image(lbl_ins, (width_32s, height_32s))
         t_label_inst_32s = t_label_inst_32s[np.newaxis, ...]
-        if xp == cupy:
-            t_label_inst_32s = cuda.to_gpu(
-                t_label_inst_32s, device=x.data.device)
-        t_label_inst_32s = Variable(t_label_inst_32s, volatile='auto')
+        assert t_label_inst_32s.shape == (1, width_32s, height_32s)
 
-        t_label_cls_data = chainer.cuda.to_cpu(t_label_cls.data)
-        t_label_cls_pil = PIL.Image.fromarray(t_label_cls_data[0])
-        t_label_cls_32s = t_label_cls_pil.resize((width_32s, height_32s))
-        t_label_cls_32s = np.asarray(t_label_cls_32s)
-        lbl_cls = t_label_cls_32s
+        lbl_cls = cuda.to_cpu(t_label_cls.data[0])
+        t_label_cls_32s = utils.resize_image(lbl_cls, (width_32s, height_32s))
         t_label_cls_32s = t_label_cls_32s[np.newaxis, ...]
+        assert t_label_cls_32s.shape == (1, width_32s, height_32s)
+
         if xp == cupy:
             t_label_cls_32s = cuda.to_gpu(
                 t_label_cls_32s, device=x.data.device)
-        t_label_cls_32s = Variable(t_label_cls_32s, volatile='auto')
+            t_label_inst_32s = cuda.to_gpu(
+                t_label_inst_32s, device=x.data.device)
 
         # get 2*(k**2) score map for 'ic'th category
         # and apply conv func to them
@@ -92,15 +80,12 @@ class CONV_FCIS(chainer.Chain):
             # applying same convolution filter to the maps of each category
             a_cls_score = F.get_item(score, np.s_[:, iks+ic*2])
             h = F.relu(self.conv_1(a_cls_score))
-            a_cls_likelihood = F.relu(self.conv_2(h))
+            a_cls_likelihood = F.sigmoid(self.conv_2(h))
             cls_likelihood.append(a_cls_likelihood)
 
         # (n_batch, C+1, height/32, width/32)
         cls_likelihood = F.concat(cls_likelihood, axis=1)
         assert cls_likelihood.shape == (1, C+1, height_32s, width_32s)
-        # roi's grand truth is assumed as center of roi
-        # grand truth is seemed to have a same resolution as the score map
-        loss_cls = F.softmax_cross_entropy(cls_likelihood, t_label_cls_32s)
 
         # get rois according to cls score
         # class is true and score > 0.7
@@ -108,8 +93,7 @@ class CONV_FCIS(chainer.Chain):
         # n_batch = 1
         rois = rois[0]
         cls_scores = cls_scores[0]
-        norm_rois = np.array(rois)[:, 1:],
-        self.rois = norm_rois
+        norm_rois = np.array(rois)[:, 1:]
 
         n_loss_seg = 0
         loss_seg = chainer.Variable(xp.array(0, dtype=np.float32),
@@ -124,11 +108,11 @@ class CONV_FCIS(chainer.Chain):
                 continue
 
             # score map in ROI: (n_batch=1, 2 * k^2 * (C + 1), roi_h, roi_w)
+            # 2nd axis is ordered like 1st pos of each cat, 2nd pos of each cat
             h_score_roi = score[0, :, y1:y2, x1:x2]
             h_score_roi = F.reshape(
                 h_score_roi, (1, 2 * k**2 * (C+1), roi_h, roi_w))
             # assembling: (n_batch=1, 2*(C+1), roi_h, roi_w)
-            # 2nd axis is ordered like 1st pos of each cat, 2nd pos of each cat
             h_score_assm = functions.assemble_2d(h_score_roi, k)
             # score map for inside/outside: (n_batch=1, C+1, 2, roi_h, roi_w)
             # ([0,1,2,3, ...] -> [[0,1],[2,3],...]
@@ -142,6 +126,7 @@ class CONV_FCIS(chainer.Chain):
             roi_mask_probs[i] = cuda.to_cpu(roi_mask_prob.data)
 
             # gt_roi_seg: (n_batch, roi_h, roi_w)
+            # TODO(mukuact) change grand truth
             # get centor of roi's instance number
             # remain only instance number gotten
             gt_roi_seg = t_label_inst_32s[:, y1:y2, x1:x2]
@@ -157,7 +142,27 @@ class CONV_FCIS(chainer.Chain):
 
         if n_loss_seg != 0:
             loss_seg /= n_loss_seg
+
+        t_cls_likelihood = self._rois_cls_gt(
+                rois, t_label_cls_32s, t_label_inst_32s)
+        assert t_cls_likelihood.shape == cls_likelihood.shape
+
+        # ignore fields that dont belong to any rois
+        mask = t_cls_likelihood == 0
+        t_cls_likelihood[mask] = cuda.to_cpu(cls_likelihood.data)[mask]
+        # calc classification loss
+        loss_cls = F.mean_squared_error(cls_likelihood, t_cls_likelihood)
+
         loss = loss_cls + loss_seg
+
+        # store some variables
+        self.x = x
+        self.lbl_cls = lbl_cls
+        self.lbl_ins = lbl_ins
+        self.rois = norm_rois
+        self.loss = cuda.to_cpu(loss.data)
+        self.loss_cls = cuda.to_cpu(loss_cls.data)
+        self.loss_seg = cuda.to_cpu(loss_seg.data)
 
         if nrois == 0:
             chainer.report({
@@ -174,8 +179,6 @@ class CONV_FCIS(chainer.Chain):
                     roi_mask_probs,
                     1, self.ksize, self.C)
 
-            self.lbl_ins = lbl_ins
-            self.lbl_cls = lbl_cls
             self.lbl_cls_pred = lbl_cls_pred
             self.lbl_ins_pred = lbl_ins_pred
 
@@ -231,6 +234,10 @@ class CONV_FCIS(chainer.Chain):
             high_prob_index = np.stack(high_prob_index, axis=-1)
 
             for index in high_prob_index[:300]:
+                if index[1] < f/2 or index[1] > width - f/2:
+                    continue
+                if index[2] < f/2 or index[2] > height - f/2:
+                    continue
                 x1 = max(0, index[2] - f/2)
                 x2 = min(width, index[2] + f/2)
                 y1 = max(0, index[1] - f/2)
@@ -244,3 +251,68 @@ class CONV_FCIS(chainer.Chain):
         assert cls_scores[0].shape == (len(rois[0]), self.C+1)
 
         return rois, cls_scores
+
+    def _rois_cls_gt(self, rois, lbl_cls, lbl_ins):
+        """calc grand truth of cls_likelihood
+
+        cls_likelihood should donate the ratio of class in the roi.
+        It seems hard to calc that for all pixels, so this method
+        calcs them for rois and fills other field with -1 for
+        ignoring
+
+        Parameters
+        ----------
+        rois: np.ndarray (C+1, 4)
+            (x1, y1, x2, y2)
+            These values are for the same resolution as lable images.
+        lbl_cls: (height, width)
+            class label grand truth
+        lbl_ins: (height, width)
+            instance label grand truth
+
+        Returns
+        -------
+        t_cls_likelihood: np.ndarray (1, C+1, height, width)
+        """
+        import ipdb;ipdb.set_trace()
+        roi_values = []
+        f = self.f
+        height, width = lbl_cls.shape
+        for roi in rois:
+            x1, y1, x2, y2 = roi
+            roi_w = x2 - x1
+            roi_h = y2 - y1
+
+            roi_center = (y1+f/2, x1+f/2)
+
+            # get a high count inst in the roi
+            roi_lbl_ins = lbl_ins[y1:y2, x1:x2]
+            roi_lbl_cls = lbl_cls[y1:y2, x1:x2]
+            (values, count) = np.unique(roi_lbl_ins, return_counts=True)
+            argsort_count = np.argsort(count)[::-1]
+            high_inst = values[argsort_count]
+            high_count = count[argsort_count]
+
+            class_ratio = {}
+            for i, count in zip(high_inst, high_count):
+                # get a class of the high count inst in the roi
+                mask = (roi_lbl_ins == i)
+                cls_v, cls_c = np.unique(roi_lbl_cls[mask])
+                i_cls = cls_v[cls_c[-1]]
+                if i_cls in class_ratio:
+                    continue
+                else:
+                    ratio_inst = float(count) / (roi_w * roi_h)
+                    class_ratio[i_cls] = ratio_inst
+
+            roi_values.append((roi_center, class_ratio))
+
+        # write the result to image
+        t_cls_likelihood = np.zeros((self.C+1, height, width))
+        for a_roi in roi_values:
+            c_y, c_x = a_roi[0]
+            class_ratio = a_roi[1]
+            for i_cls in class_ratio:
+                t_cls_likelihood[i_cls, c_y, c_x] = class_ratio[i_cls]
+
+        return t_cls_likelihood[np.newaxis, ...]

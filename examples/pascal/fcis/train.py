@@ -89,9 +89,9 @@ def get_trainer(
 
     n_classes = len(dataset_train.class_names) - 1
     if model == 'normal':
-        model = rfcn.models.FCISVGG(C=n_classes, k=7)
+        model = rfcn.models.FCISVGG(C=n_classes, k=5)
     elif model == 'conv':
-        model = rfcn.models.CONVFCIS(C=n_classes, k=7)
+        model = rfcn.models.CONVFCIS(C=n_classes, k=5)
     model.train = True
     fcn.utils.copy_chainermodel(vgg, model.trunk)
 
@@ -139,11 +139,10 @@ def get_trainer(
         trigger=(interval_log, 'iteration'), log_name='log.json'))
     trainer.extend(extensions.PrintReport([
         'epoch', 'iteration',
-        'main/loss', 'validation/main/loss',
+        'main/loss', 
         'main/loss_cls', 'main/loss_seg',
         'main/cls_iu', 'main/ins_iu',
-        'validation/loss_cls', 'validation/loss_seg',
-        'validation/cls_iu', 'validation/ins_iu',
+        'validation/main/loss','validation/loss_cls', 'validation/loss_seg',
         'elapsed_time',
     ]))
     trainer.extend(extensions.ProgressBar(update_interval=1))
