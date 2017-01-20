@@ -38,16 +38,18 @@ class PascalInstanceSegmentationDataset(InstanceSegmentationDatasetBase):
 
     def __init__(self, data_type, one_example=False):
         assert data_type in ('train', 'val')
-        if one_example and data_type != 'train':
-            print('one_example is True, so we forcely use train dataset')
-            data_type = 'train'
+        if one_example and data_type != 'val':
+            print('one_example is True, so we forcely use val dataset')
+            data_type = 'val'
         dataset_dir = chainer.dataset.get_dataset_directory(
             'pascal/VOCdevkit/VOC2012')
         imgsets_file = osp.join(
             dataset_dir,
             'ImageSets/Segmentation/{}.txt'.format(data_type))
         self.files = []
-        for data_id in open(imgsets_file).readlines():
+        for i, data_id in enumerate(open(imgsets_file).readlines()):
+            if one_example and i != 47:
+                continue
             data_id = data_id.strip()
             img_file = osp.join(
                 dataset_dir, 'JPEGImages/{}.jpg'.format(data_id))
@@ -60,8 +62,6 @@ class PascalInstanceSegmentationDataset(InstanceSegmentationDatasetBase):
                 'seg_class': seg_class_file,
                 'seg_object': seg_object_file,
             })
-            if one_example:
-                break
 
     def __len__(self):
         return len(self.files)
