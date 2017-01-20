@@ -1,5 +1,8 @@
 import fcn
+import numpy as np
 
+from rfcn.external.faster_rcnn.faster_rcnn.proposal_target_layer \
+    import ProposalTargetLayer
 from rfcn.datasets.pascal import PascalInstanceSegmentationDataset
 from rfcn import utils
 
@@ -11,6 +14,9 @@ class PascalInstanceSegmentationRPDataset(PascalInstanceSegmentationDataset):
     def __init__(self, data_type, one_example=False, negative_ratio=1.0):
         super(PascalInstanceSegmentationRPDataset,
               self).__init__(data_type, one_example)
+        n_class = len(self.class_names)
+        self.propose_targets = ProposalTargetLayer(num_classes=n_class)
+        self.propose_targets.FG_THRESH = 0.8
         self.negative_ratio = negative_ratio
 
     def get_example(self, i):
@@ -19,13 +25,14 @@ class PascalInstanceSegmentationRPDataset(PascalInstanceSegmentationDataset):
         # get rois
         img = self.datum_to_img(datum)
         datum = self.img_to_datum(img)
+        gt_boxes = utils.label_to_bboxes(lbl_ins)
+        roi_clss, _ = utils.label_rois(
+            gt_boxes, lbl_ins, lbl_cls, overlap_thresh=0.9)
+        gt_boxes = np.hstack((gt_boxes, roi_clss[:, np.newaxis]))
         rois = utils.get_region_proposals(img)
-        keep = utils.nms(rois, 0.9)
-        rois = rois[keep]
-        roi_clss, _ = utils.label_rois(rois, lbl_ins, lbl_cls)
-        samples = utils.get_positive_negative_samples(
-            roi_clss != 0, negative_ratio=self.negative_ratio)
-        rois = rois[samples]
+        rois = np.hstack((np.zeros((len(rois), 1)), rois))
+        rois, roi_clss, _, _, _ = self.propose_targets(rois, gt_boxes)
+        rois = rois[:, 1:].astype(np.int32)
         return datum, lbl_cls, lbl_ins, rois
 
     def visualize_example(self, i):
