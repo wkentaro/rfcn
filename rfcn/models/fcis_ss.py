@@ -131,10 +131,10 @@ class FCIS_SS(chainer.Chain):
             roi_cls_pred = int(roi_cls_pred.data[0])
             roi_clss_pred[i_roi] = roi_cls_pred
 
-            roi_score_io = roi_score[:, roi_cls, :, :, :]
-            assert roi_score_io.shape == (1, 2, roi_h, roi_w)
-
             if roi_cls != 0:
+                roi_score_io = roi_score[:, roi_cls, :, :, :]
+                assert roi_score_io.shape == (1, 2, roi_h, roi_w)
+
                 roi_seg = roi_seg.astype(np.int32)
                 roi_seg = utils.resize_image(roi_seg, (roi_h, roi_w))
                 roi_seg = roi_seg[np.newaxis, :, :]
@@ -145,6 +145,7 @@ class FCIS_SS(chainer.Chain):
                 loss_seg += a_loss_seg
                 n_loss_seg += 1
 
+            roi_score_io = roi_score[:, roi_cls_pred, :, :, :]
             roi_score_io = cuda.to_cpu(roi_score_io.data)[0]
             roi_seg_pred = np.argmax(roi_score_io, axis=0)
             roi_seg_pred = roi_seg_pred.astype(bool)
