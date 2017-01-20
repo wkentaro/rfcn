@@ -43,6 +43,8 @@ class CONV_FCIS(chainer.Chain):
         t_label_inst: (n_batch, height, width)
             Label image about object instances.
         """
+        self.x = x
+
         xp = chainer.cuda.get_array_module(x.data)
         C = self.C
         k = self.ksize
@@ -106,6 +108,8 @@ class CONV_FCIS(chainer.Chain):
         # n_batch = 1
         rois = rois[0]
         cls_scores = cls_scores[0]
+        norm_rois = np.array(rois)[:, 1:],
+        self.rois = norm_rois
 
         n_loss_seg = 0
         loss_seg = chainer.Variable(xp.array(0, dtype=np.float32),
@@ -165,11 +169,13 @@ class CONV_FCIS(chainer.Chain):
         else:
             lbl_ins_pred, lbl_cls_pred = utils.roi_scores_to_label(
                     (height_32s, width_32s),
-                    np.array(rois)[:, 1:],
+                    norm_rois,
                     cls_scores,
                     roi_mask_probs,
                     1, self.ksize, self.C)
 
+            self.lbl_ins = lbl_ins
+            self.lbl_cls = lbl_cls
             self.lbl_cls_pred = lbl_cls_pred
             self.lbl_ins_pred = lbl_ins_pred
 
