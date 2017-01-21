@@ -33,6 +33,7 @@ class PascalInstanceSegmentationRPDataset(PascalInstanceSegmentationDataset):
         rois = np.hstack((np.zeros((len(rois), 1)), rois))
         rois, roi_clss, _, _, _ = self.propose_targets(rois, gt_boxes)
         rois = rois[:, 1:].astype(np.int32)
+        rois = np.vstack((rois, gt_boxes[:, :4]))
         return datum, lbl_cls, lbl_ins, rois
 
     def visualize_example(self, i):
