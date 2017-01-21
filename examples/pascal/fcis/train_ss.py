@@ -48,13 +48,14 @@ def visualize_prediction(model, dataset):
     return fcn.utils.get_tile_image([viz_true, viz_pred], (2, 1))
 
 
-def evaluate(model, iterator, device, viz_out):
+def evaluate(model, dataset, device, viz_out):
     model.train = False
     if not osp.exists(osp.dirname(viz_out)):
         os.makedirs(osp.dirname(viz_out))
     results = []
     vizs = []
-    for i, batch in enumerate(iterator):
+    for i in xrange(len(dataset)):
+        batch = [dataset.get_example(i)]
         in_arrays = [np.asarray(x) for x in zip(*batch)]
         # prediction
         if device >= 0:
@@ -71,7 +72,7 @@ def evaluate(model, iterator, device, viz_out):
         ))
         if i % 100 == 0:
             # visualization
-            viz = visualize_prediction(model, iterator.dataset)
+            viz = visualize_prediction(model, dataset)
             vizs.append(viz)
     scipy.misc.imsave(viz_out, fcn.utils.get_tile_image(vizs))
     results = np.mean(results, axis=0)
@@ -133,8 +134,6 @@ def main():
             'val', one_example=one_example)
 
     iter_train = chainer.iterators.SerialIterator(dataset_train, batch_size=1)
-    iter_val = chainer.iterators.SerialIterator(
-        dataset_val, batch_size=1, repeat=False, shuffle=False)
 
     # 2. model
 
@@ -215,7 +214,7 @@ def main():
 
         if iteration % interval_eval == 0:
             viz_out = osp.join(out, 'viz_val', '{}.jpg'.format(iteration))
-            results = evaluate(model, iter_val, device=gpu, viz_out=viz_out)
+            results = evaluate(model, dataset_val, device=gpu, viz_out=viz_out)
             with open(csv_file, 'a') as f:
                 f.write(csv_template.format(
                     epoch=epoch,
