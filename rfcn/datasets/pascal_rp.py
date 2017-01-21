@@ -1,9 +1,9 @@
 import fcn
 import numpy as np
 
+from rfcn.datasets.pascal import PascalInstanceSegmentationDataset
 from rfcn.external.faster_rcnn.faster_rcnn.proposal_target_layer \
     import ProposalTargetLayer
-from rfcn.datasets.pascal import PascalInstanceSegmentationDataset
 from rfcn import utils
 
 
