@@ -27,10 +27,16 @@ class MovingMNISTDataset(chainer.dataset.DatasetMixin):
 
         # move number in space (280, 280)
         data = np.zeros((9, 3, 280, 280), dtype=np.float32)
+        direction = np.array(5, 5)
+        # todo : decide derection from label
         for j in xrange(9):
             datum = np.zeros((3, 280, 280), dtype=np.float32)
+            for k in xrange(3):
+                datum[k, direction[0]*j:direction[0]*j+28, direction[1]*j:direction[1]*j+28]
+                = gray
+            data[j] = datum
         # data: (n_batch=9, channels=3, height=280, width=280),
-        # masks: (n_batch=9, height=280, width=280)
+        # masks: (n_batch=9, height=280, width=280):todo
         return data, masks
 
     def visualize_example(self, i):
